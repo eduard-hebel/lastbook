@@ -4,7 +4,7 @@ import CryptoKit
 import LastbookLLM
 #endif
 
-/// The one local model, Gemma 4 26B A4B, run in this process by llama.cpp (llm/lastbook_llm_bridge.cpp). It mirrors desktop
+/// A known local model (Gemma 4 26B A4B, or the small LFM2.5 2.6B), run in this process by llama.cpp (llm/lastbook_llm_bridge.cpp). It mirrors desktop
 /// llm_local.Local: the same states, the same once-only size and SHA-256 check (remembered by path, size and modification time),
 /// llama.cpp's own fit before loading, a 16,384-token context, idle stop after 15 minutes, one retry after a failed load.
 /// Nothing here opens a socket and nothing is downloaded.
@@ -40,6 +40,9 @@ final class LlamaLocal: LocalModel, @unchecked Sendable {
                          "too_big": "incompatible", "error": "failed"]
 
     private let lock = NSRecursiveLock()
+    /// The model this instance runs: the first known one found on disk (LocalAI's KnownModels), Gemma 4 until then.
+    private(set) var spec: ModelSpec = Gemma4.spec
+    var format: String { spec.format }
     private let genLock = NSLock()                 // one answer at a time: the model holds one conversation
     private let loadSerial = NSLock()              // one load at a time, even while a stopped one is still unwinding
     private(set) var state = "absent"
@@ -90,7 +93,7 @@ final class LlamaLocal: LocalModel, @unchecked Sendable {
         startOnce()
         lock.lock(); defer { lock.unlock() }
         let f = fit ?? [:]
-        return ["name": "Gemma 4 26B A4B (Unsloth 4-bit, UD-Q4_K_M)", "file": Gemma4.file, "size": Gemma4.size, "state": state,
+        return ["name": spec.name, "file": spec.file, "size": spec.size, "state": state,
                 "phase": Self.phases[state] ?? "failed", "pct": pct as Any? ?? NSNull(), "message": message,
                 "found_at": path.map(folderName) as Any? ?? NSNull(), "enabled": enabled, "runtime": Self.runtime,
                 "needs_bytes": f["needs"] ?? NSNull(), "ram_total": f["ram_total"] ?? NSNull(), "placement": f["placement"] ?? NSNull(),
@@ -167,12 +170,12 @@ final class LlamaLocal: LocalModel, @unchecked Sendable {
     }
 
     /// Desktop llm_local.mark_checked: the installer downloaded this file and verified its SHA-256 as the bytes arrived, so record
-    /// it as checked (by its stamp) instead of reading all 17 GB again. Only the pinned name, size and hash are accepted.
+    /// it as checked (by its stamp) instead of reading the whole file again. Only a known model's pinned name, size and hash are accepted.
     @discardableResult
     func markChecked(_ p: URL, sha256: String) -> Bool {
-        guard p.lastPathComponent == Gemma4.file, sha256.lowercased() == Gemma4.sha256,
+        guard let spec = KnownModels.named(p.lastPathComponent), sha256.lowercased() == spec.sha256,
               let size = (try? FileManager.default.attributesOfItem(atPath: p.path)[.size] as? NSNumber)?.int64Value,
-              size == Gemma4.size else { return false }
+              size == spec.size else { return false }
         lock.lock(); saved["checked"] = stamp(p); saved["bad"] = nil; save(); lock.unlock()
         NSLog("local AI: \(p.lastPathComponent) verified while downloading; recorded as checked")
         return true
@@ -196,25 +199,29 @@ final class LlamaLocal: LocalModel, @unchecked Sendable {
         if !Self.runtime { state = "error"; message = "This copy of Lastbook has no local AI runtime."; lock.unlock(); return }
         discovering = true
         lock.unlock()
-        var found: URL?, wrong: (URL, Int64)?
+        var found: URL?, foundSpec: ModelSpec?, wrong: (URL, Int64, ModelSpec)?
         for folder in places() {
-            let p = folder.appendingPathComponent(Gemma4.file)
-            guard let a = try? FileManager.default.attributesOfItem(atPath: p.path), (a[.type] as? FileAttributeType) == .typeRegular,
-                  let size = (a[.size] as? NSNumber)?.int64Value else { continue }
-            if size == Gemma4.size { found = p; break }
-            if wrong == nil { wrong = (p, size) }
+            for known in KnownModels.all {
+                let p = folder.appendingPathComponent(known.file)
+                guard let a = try? FileManager.default.attributesOfItem(atPath: p.path), (a[.type] as? FileAttributeType) == .typeRegular,
+                      let size = (a[.size] as? NSNumber)?.int64Value else { continue }
+                if size == known.size { found = p; foundSpec = known; break }
+                if wrong == nil { wrong = (p, size, known) }
+            }
+            if found != nil { break }
         }
         lock.lock()
         guard let found else {
             defer { discovering = false; wantLoad = false; lock.unlock() }
             pct = nil; path = nil
-            if let (p, size) = wrong {
+            if let (p, size, known) = wrong {
                 state = "wrong"
-                message = "The file in \(folderName(p)) is \(gb(size)) of \(gb(Gemma4.size)). " +
-                    (size < Gemma4.size ? "The copy may not have finished." : "It is not the file Lastbook expects.")
+                message = "The file in \(folderName(p)) is \(gb(size)) of \(gb(known.size)). " +
+                    (size < known.size ? "The copy may not have finished." : "It is not the file Lastbook expects.")
             } else { state = "absent"; message = "" }
             return
         }
+        if let foundSpec { spec = foundSpec }
         let st = stamp(found)
         let checked = (saved["checked"] as? [Any]).map(stampEqual(st)) == true
         // The fit is remembered with the check, for this file, context and iPad (memory and system version).
@@ -289,7 +296,7 @@ final class LlamaLocal: LocalModel, @unchecked Sendable {
         }
     }
 
-    /// Reads all 17 GB once to compare the SHA-256 with the published one, showing how far it has got.
+    /// Reads the whole file once to compare the SHA-256 with the published one, showing how far it has got.
     private func check(_ p: URL) -> Bool {
         NSLog("local AI: checking \(p.lastPathComponent) (SHA-256 of the whole file, once)")
         let t0 = Date()
@@ -303,7 +310,7 @@ final class LlamaLocal: LocalModel, @unchecked Sendable {
                 guard let chunk, !chunk.isEmpty else { break }
                 h.update(data: chunk)
                 done += Int64(chunk.count)
-                let n = Int(done * 100 / Gemma4.size)
+                let n = Int(done * 100 / spec.size)
                 lock.lock(); pct = n; lock.unlock()
             }
         } catch {
@@ -311,7 +318,7 @@ final class LlamaLocal: LocalModel, @unchecked Sendable {
             return false
         }
         let hex = h.finalize().map { String(format: "%02x", $0) }.joined()
-        guard done == Gemma4.size, hex == Gemma4.sha256 else {
+        guard done == spec.size, hex == spec.sha256 else {
             lock.lock(); defer { lock.unlock() }
             state = "wrong"; pct = nil
             message = "The file in \(folderName(p)) has the right size but different contents. Copy it again."
@@ -603,7 +610,7 @@ final class LlamaLocal: LocalModel, @unchecked Sendable {
         let raw = ptrs.withUnsafeBufferPointer { pp in
             specials.withUnsafeBufferPointer { sp in
                 lb_generate(h, pp.baseAddress, sp.baseAddress, Int32(segments.count), Int32(maxTokens), 0.2, 64, 0.95, 0.05,
-                            seed, "<|tool_response>", pieceCB, sink.toOpaque())
+                            seed, spec.stop, pieceCB, sink.toOpaque())
             }
         }
         let ev = raw.flatMap { (try? JSONSerialization.jsonObject(with: Data(String(cString: $0).utf8))) as? Rec } ?? [:]

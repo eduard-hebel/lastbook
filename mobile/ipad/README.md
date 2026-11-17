@@ -13,7 +13,7 @@ Licence: MIT, like the rest of this repository (see [`/LICENSE`](../../LICENSE))
 - **Videos:** a native home feed, categories, search and a watch page. The watch page has the system player (Picture in Picture), a searchable transcript and Up next.
 - **Map:** the offline map from the desktop app: streets for the chosen state, help and resource points, place search and street-address search.
 - **Chat:** answers from the library with numbered citations that open the exact PDF page or video moment.
-  - With the optional local AI (Gemma 4 26B A4B, run in-process by llama.cpp), Chat writes cited answers.
+  - With the optional local AI (Gemma 4 26B A4B, or the small LFM2.5 2.6B, run in-process by llama.cpp), Chat writes cited answers.
   - Without the local AI, Chat shows the library pages that match.
 - **Reading:** PDF pages drawn natively, so no PDF reaches the web view, plus saved web pages, transcripts and keyword search.
 - **Setup inside the app:**
@@ -44,7 +44,7 @@ Each download is HTTPS with the system's certificate check plus pinned root cert
 ## Current limitations
 
 - **Development preview.** The local AI has run with the Small library on one physical iPad Pro (M1, 16 GB). Other iPads and longer use are untested.
-- **Local AI memory:** the model file is 17 GB. Setup turns it on by default only on iPads with 16 GB-class memory, and marks smaller iPads "not tested". Lastbook checks the fit after the file is in place.
+- **Local AI memory:** the Gemma model file is 17 GB. Setup turns it on by default only on iPads with 16 GB-class memory, and marks smaller iPads "not tested". Lastbook checks the fit after the file is in place. The small model (LFM2.5 2.6B, a 1.6 GB file, about 2 GB of memory with its context) is the one that can fit a phone; it is recognised wherever the big one is, but it has not run on a physical device yet.
 - **Encyclopedias (ZIM files) don't open on iPad yet:** there is no ZIM reader in the app. The rest of the library works.
 - **H.264 video copies** (for iPads that can't play a video's AV1 or VP9 format) are not on the download site for any pack yet.
   - Build them with `tools/videocompat` and `tools/make_video_copies_zip.py`, then import the zip from Files.

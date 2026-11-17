@@ -235,7 +235,7 @@ enum InstallPlan {
         var places: [URL] = []
         if let root { places += [root.appendingPathComponent("models"), root] }
         places.append(Library.documents)
-        return places.contains { ZipInstall.size($0.appendingPathComponent(Gemma4.file)) == Gemma4.size }
+        return places.contains { folder in KnownModels.all.contains { ZipInstall.size(folder.appendingPathComponent($0.file)) == $0.size } }
     }
 
     /// Complete: the library and the chosen state's map are installed and check out, and its addresses when they are published.

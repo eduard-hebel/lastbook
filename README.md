@@ -259,7 +259,10 @@ before running them. Their disposable test distro is named `LastbookTest`, with 
 - **The local AI** is optional: Gemma 4 26B A4B (Unsloth's `gemma-4-26B-A4B-it-UD-Q4_K_M.gguf`, about 17 GB). The file
   name, size, SHA-256 and Hugging Face revision are pinned in `llm_local.py`. Setup offers it only where the measured fit
   says it fits (about 18 GB of memory for model and context, plus a reserve) and says why in plain words when it does not.
-  Setup downloads it directly from Hugging Face. The model is never part of the app or of this repository. The runner,
+  Setup downloads it directly from Hugging Face. Where a machine cannot hold the big model, setup can offer a much
+  smaller one instead: Liquid AI's LFM2.5 2.6B (`LFM2.5-2.6B-Q4_K_M.gguf`, about 1.6 GB, about 2 GB of memory for model
+  and context), the size class a phone can hold, pinned the same way in `llm_local.py` and answering with the same
+  citations. The model is never part of the app or of this repository. The runner,
   `lastbook-llm`, is our own small program (`packaging/llm/lastbook_llm.cpp`) on llama.cpp tag b12032: Metal on a Mac,
   Vulkan with CPU fallbacks on Windows and Linux.
 - **Meaning-based search** uses BAAI's bge-small-en-v1.5 (ONNX) through onnxruntime, on Windows only; the Mac build uses

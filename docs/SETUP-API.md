@@ -54,7 +54,11 @@ on an allowed host.
     {"id": "gemma-4-26b-a4b", "title": "Gemma 4 26B A4B", "file": "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf",
      "url": "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/c099eb48e663fd284577b04978a94ffccb261841/gemma-4-26B-A4B-it-UD-Q4_K_M.gguf?download=true",
      "size": 16947541728, "sha256": "f2c28b3dc4776931ac6f879e11f203dec637ea0f14267a86ec8f6165f63f293f",
-     "memory_bytes": 19027384256, "available": true}
+     "memory_bytes": 19027384256, "available": true},
+    {"id": "lfm2.5-2.6b", "title": "LFM2.5 2.6B", "file": "LFM2.5-2.6B-Q4_K_M.gguf",
+     "url": "https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF/resolve/e7caca5d835a3901a8e0d63e94009429bafafdfc/LFM2.5-2.6B-Q4_K_M.gguf?download=true",
+     "size": 1674455040, "sha256": "02a8b7e17487d326e46d68ce0ba24211e1b80a14c4cd0597fa73c1cd697f52ed",
+     "memory_bytes": 2164260864, "available": true}
   ]
 }
 ```

@@ -3,9 +3,11 @@ import Foundation
 import UIKit
 #endif
 
-/// The in-process local AI boundary. Lastbook ships exactly one model, Gemma 4 26B A4B (Unsloth UD-Q4_K_M), run by
+/// The in-process local AI boundary. Lastbook knows two models: Gemma 4 26B A4B (Unsloth UD-Q4_K_M) for machines with
+/// the memory for it, and the small LFM2.5 2.6B (Liquid AI, Q4_K_M), the size class a phone can hold. Both run by
 /// llama.cpp dde879bc (the desktop's pinned commit) linked into the app (Engine/AI/LlamaLocal.swift, llm/). There is no
-/// cloud AI and no fallback model. The exact model loaded and answered on a physical M1 iPad Pro (16 GB) in testing.
+/// cloud AI and no fallback model. Gemma 4 loaded and answered on a physical M1 iPad Pro (16 GB) in testing; the small
+/// model is new and still has to prove itself on a physical phone.
 protocol LocalModel: AnyObject {
     /// "absent", "wrong", "checking", "measuring", "too_big", "stopped", "loading", "ready", "error", "off" (desktop llm_local.Local).
     var state: String { get }
@@ -13,6 +15,8 @@ protocol LocalModel: AnyObject {
     func status() -> Rec
     /// True when a question can be answered: running, or ready to load.
     var available: Bool { get }
+    /// Which prompt format the loaded model speaks: "gemma4" or "lfm2" (desktop llm_local MODELS' format).
+    var format: String { get }
     /// Look for the file again (desktop "Look again").
     func discover()
     func setEnabled(_ on: Bool)
@@ -20,7 +24,7 @@ protocol LocalModel: AnyObject {
     @discardableResult func markChecked(_ path: URL, sha256: String) -> Bool
     /// Loads the model when it is stopped and waits for it. nil when ready, "stopped" when the person stopped, else why not.
     func ensureRunning(onWait: (Int?) -> Void, cancelled: () -> Bool) -> String?
-    /// Streams the visible text for an already-rendered Gemma 4 prompt (segments of text and special markup, so library text
+    /// Streams the visible text for an already-rendered prompt in the model's own format (segments of text and special markup, so library text
     /// can never inject turn tokens). Returns the runner's done event; throws a plain sentence.
     func generate(segments: [Segment], maxTokens: Int, cancelled: @escaping () -> Bool, piece: @escaping (String) -> Void) throws -> Rec
     /// Free the model's memory (idle stop, background, memory warning, quit, or asked).
@@ -34,11 +38,49 @@ protocol LocalModel: AnyObject {
     func willTerminate()
 }
 
-/// Pinned identity of the one model, copied from desktop llm_local.py.
+extension LocalModel {
+    var format: String { "gemma4" }   // test doubles and older models speak Gemma 4's format
+}
+
+/// One known model's pinned identity, copied from desktop llm_local.py's MODELS.
+struct ModelSpec {
+    let id: String
+    let name: String
+    let file: String
+    let size: Int64
+    let sha256: String
+    let format: String   // "gemma4" or "lfm2": which prompt format and tool-call notation it uses
+    let stop: String     // the token text that ends one of its replies
+}
+
+/// Pinned identity of the big model, copied from desktop llm_local.py.
 enum Gemma4 {
-    static let file = "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf"
-    static let size: Int64 = 16_947_541_728
-    static let sha256 = "f2c28b3dc4776931ac6f879e11f203dec637ea0f14267a86ec8f6165f63f293f"
+    static let spec = ModelSpec(id: "gemma-4-26b-a4b", name: "Gemma 4 26B A4B (Unsloth 4-bit, UD-Q4_K_M)",
+                                file: "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf", size: 16_947_541_728,
+                                sha256: "f2c28b3dc4776931ac6f879e11f203dec637ea0f14267a86ec8f6165f63f293f",
+                                format: "gemma4", stop: "<|tool_response>")
+    static let file = spec.file
+    static let size = spec.size
+    static let sha256 = spec.sha256
+}
+
+/// Pinned identity of the small model, copied from desktop llm_local.py: Liquid AI's LFM2.5 2.6B, a tenth of
+/// Gemma's size, for the phones and small tablets the big model will never fit.
+enum LFM25 {
+    static let spec = ModelSpec(id: "lfm2.5-2.6b", name: "LFM2.5 2.6B (Liquid AI 4-bit, Q4_K_M)",
+                                file: "LFM2.5-2.6B-Q4_K_M.gguf", size: 1_674_455_040,
+                                sha256: "02a8b7e17487d326e46d68ce0ba24211e1b80a14c4cd0597fa73c1cd697f52ed",
+                                format: "lfm2", stop: "<|im_end|>")
+    static let file = spec.file
+    static let size = spec.size
+    static let sha256 = spec.sha256
+}
+
+/// Every model Lastbook knows, biggest first (desktop MODELS): the first one found on disk, in size order per
+/// folder, is the one that runs.
+enum KnownModels {
+    static let all = [Gemma4.spec, LFM25.spec]
+    static func named(_ file: String) -> ModelSpec? { all.first { $0.file == file } }
 }
 
 final class LocalAI: @unchecked Sendable {

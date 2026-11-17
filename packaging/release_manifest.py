@@ -4,8 +4,8 @@
   python3 -I -B packaging/release_manifest.py [--packs derived/release/manifest-v1.json] [--out derived/release/setup/manifest-v1.json]
                                               [--measure /path/to/the.gguf] [--small-from derived/release/1.0.0-20261104-1507]
 
-Packs come from derived/release/manifest-v1.json, which session publish-packs writes for each verified pack. The model entry comes
-from llm_local.py's constants (file, size, SHA-256, revision), so the two cannot drift. memory_bytes is llama.cpp's measure of
+Packs come from derived/release/manifest-v1.json, which session publish-packs writes for each verified pack. The model entries come
+from llm_local.py's MODELS (file, size, SHA-256, revision), so the two cannot drift. memory_bytes is llama.cpp's measure of
 the model and its context (device + host bytes from lastbook-llm --measure): MEASURED_MEMORY below, or measured again with --measure.
 --small-from builds the Small pack's entry from a release folder's SHA256SUMS.txt when the packs file has none (before
 publish-packs has written it). Every URL must be on an allowed host (engine/setup/download.py) or the build stops.
@@ -26,16 +26,17 @@ import llm_local                                   # noqa: E402  (constants only
 from engine.setup import download, manifest        # noqa: E402
 
 MEASURED_MEMORY = 18_160_150_464 + 867_233_792     # Mac Studio M3 Ultra, 12 Nov 2026, --ctx 16384: device_bytes + host_bytes
+LFM_MEASURED_MEMORY = 2064 * 1024 * 1024           # llama-server peak RSS after generating, 4 slots, --ctx 16384, Linux VM, 17 Nov 2026 — re-measure with lastbook-llm --measure before release
 BASE = 'https://downloads.lastbook.org'     # live since 12 Nov 2026; packs and maps are accepted from this host only
 SMALL_SUMMARY = 'The essentials: first aid, water, food, shelter and repair, with the maps of this area.'
 
 
-def model_entry(memory_bytes):
-    rev = re.search(r'revision ([0-9a-f]{40})', llm_local.SOURCE).group(1)
-    repo = llm_local.SOURCE.split(',')[0].strip()
-    return {'id': 'gemma-4-26b-a4b', 'title': 'Gemma 4 26B A4B', 'file': llm_local.FILE,
-            'url': f'https://huggingface.co/{repo}/resolve/{rev}/{llm_local.FILE}?download=true',
-            'size': llm_local.SIZE, 'sha256': llm_local.SHA256, 'memory_bytes': int(memory_bytes), 'available': True}
+def model_entry(spec, memory_bytes):
+    rev = re.search(r'revision ([0-9a-f]{40})', spec['source']).group(1)
+    repo = spec['source'].split(',')[0].strip()
+    return {'id': spec['id'], 'title': spec['title'], 'file': spec['file'],
+            'url': f'https://huggingface.co/{repo}/resolve/{rev}/{spec["file"]}?download=true',
+            'size': spec['size'], 'sha256': spec['sha256'], 'memory_bytes': int(memory_bytes), 'available': True}
 
 
 def measure(gguf):
@@ -84,15 +85,17 @@ def main():
                 pass
     if not packs:
         sys.exit(f'no packs: {a.packs} is missing or empty (publish-packs writes it); --small-from builds Small alone')
+    models = [model_entry(llm_local.MODELS[0], measure(a.measure) if a.measure else MEASURED_MEMORY),
+              model_entry(llm_local.MODELS[1], LFM_MEASURED_MEMORY)]
     out = {'version': 1, 'published': src.get('published') or time.strftime('%Y-%m-%d'), 'packs': packs, 'maps': list(src.get('maps') or []),
            'address_indexes': list(src.get('address_indexes') or []),
-           'models': [model_entry(measure(a.measure) if a.measure else MEASURED_MEMORY)]}
+           'models': models}
     if manifest.validate(out) is None:
         bad = [f.get('url') for p in packs for f in p.get('files', []) if not download.url_allowed(f.get('url'))]
         sys.exit('the manifest does not pass engine/setup/manifest.validate' + (f'; addresses not allowed: {bad}' if bad else ''))
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(json.dumps(out, indent=1) + '\n', encoding='utf-8')
-    print(f'{a.out}: {len(out["maps"])} maps, {len(packs)} packs ({", ".join(p["id"] + ("" if p.get("available") else " later") for p in packs)}), 1 model')
+    print(f'{a.out}: {len(out["maps"])} maps, {len(packs)} packs ({", ".join(p["id"] + ("" if p.get("available") else " later") for p in packs)}), {len(models)} models')
 
 
 if __name__ == '__main__':

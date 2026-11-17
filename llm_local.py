@@ -1,13 +1,17 @@
-"""The optional local AI: Gemma 4 26B A4B run on this computer by lastbook-llm, a program of ours that speaks only through pipes.
+"""The optional local AI: a model run on this computer by lastbook-llm, a program of ours that speaks only through pipes.
+
+Two models are known: Gemma 4 26B A4B (the default, for computers with the memory for it) and LFM2.5 2.6B
+(Liquid AI's small on-device model, for computers and tablets with little memory, and phones). Which one runs is
+decided by which published model file is found; everything else in this file is the same for both.
 
 Nothing here opens a socket or reaches past this computer. The model is a file the person downloads from the website, outside the
 app. Lastbook finds it inside the selected library or an explicitly configured model folder, checks the published file, asks llama.cpp
 whether it fits this computer's memory, and starts it when someone asks a question. It stops after IDLE_STOP seconds unused,
 when turned off, and when the app quits (the program leaves when its standard input closes).
 
-assistant.py calls round() for each model turn, with OpenAI-shaped messages. This file turns them into Gemma 4's own prompt
-format, sends that as segments (template markup, where special tokens count, or plain text, where they never do: a document
-cannot start a turn of its own), and turns Gemma's tool calls back into the shape assistant.py already handles.
+assistant.py calls round() for each model turn, with OpenAI-shaped messages. This file turns them into the model's own prompt
+format (Gemma 4's, or LFM2's chat template), sends that as segments (template markup, where special tokens count, or plain text, where they never do: a document
+cannot start a turn of its own), and turns the model's tool calls back into the shape assistant.py already handles.
 """
 import hashlib
 import json
@@ -27,6 +31,25 @@ SIZE = 16_947_541_728
 SHA256 = 'f2c28b3dc4776931ac6f879e11f203dec637ea0f14267a86ec8f6165f63f293f'
 NAME = 'Gemma 4 26B A4B (Unsloth 4-bit, UD-Q4_K_M)'
 SOURCE = 'unsloth/gemma-4-26B-A4B-it-GGUF, revision c099eb48e663fd284577b04978a94ffccb261841'
+
+# Every model Lastbook can run, identified by its published file. The first entry is the default above: the one
+# status() describes before any file is found, and the one setup offers where it fits. A smaller model later in
+# the list is how the local AI reaches machines the default cannot: the 2.6B file is about a tenth of the size,
+# and measured with a 16,384-token context the program held about 2.1 GB, where Gemma 4 needs about 17 GB.
+MODELS = [
+    {'id': 'gemma-4-26b-a4b', 'title': 'Gemma 4 26B A4B', 'file': FILE, 'size': SIZE, 'sha256': SHA256, 'name': NAME, 'source': SOURCE,
+     'format': 'gemma4', 'stop': ['<|tool_response>']},
+    {'id': 'lfm2.5-2.6b', 'title': 'LFM2.5 2.6B', 'file': 'LFM2.5-2.6B-Q4_K_M.gguf', 'size': 1_674_455_040,
+     'sha256': '02a8b7e17487d326e46d68ce0ba24211e1b80a14c4cd0597fa73c1cd697f52ed',
+     'name': 'LFM2.5 2.6B (Liquid AI 4-bit, Q4_K_M)',
+     'source': 'LiquidAI/LFM2.5-2.6B-GGUF, revision e7caca5d835a3901a8e0d63e94009429bafafdfc',
+     'format': 'lfm2', 'stop': ['<|im_end|>']},
+]
+
+
+def model_named(filename):
+    """The known model a file name claims to be, or None."""
+    return next((m for m in MODELS if m['file'] == filename), None)
 CTX = 16384               # tokens the model holds: the system prompt, sources, the conversation and the answer
 RESERVE = 2.5 * 2**30     # memory left for the system and the rest of Lastbook beyond what llama.cpp measures for the model
 IDLE_STOP = int(os.environ.get('LASTBOOK_AI_IDLE_S') or 15 * 60)   # seconds without a question before the model is stopped, to give its memory back
@@ -82,9 +105,10 @@ def _stamp(p):
 
 def mark_checked(path, sha256):
     """For setup: it has just checked this file's SHA-256 while downloading it, so the AI need not read it again.
-    sha256 is the digest setup computed; it must be the published one, or nothing is recorded."""
+    sha256 is the digest setup computed; it must be the published one for that file, or nothing is recorded."""
     p = Path(path)
-    if p.name != FILE or p.stat().st_size != SIZE or str(sha256).lower() != SHA256:
+    spec = model_named(p.name)
+    if spec is None or p.stat().st_size != spec['size'] or str(sha256).lower() != spec['sha256']:
         raise ValueError('not the model file')
     LOCAL.saved['checked'] = _stamp(p)
     _save(LOCAL.saved)
@@ -109,6 +133,7 @@ class Local:
         self.lock = threading.RLock()
         self.gen_lock = threading.Lock()       # one answer at a time: the model holds one conversation
         self.state, self.pct, self.message = 'absent', None, ''
+        self.spec = MODELS[0]     # the model the found file is; the default until one is found
         self.path, self.fit, self.ready_info = None, None, None
         self.proc, self.events, self.last_used = None, None, 0
         self.t_progress = 0       # when the load last got further (it started, or its percentage passed the furthest so far)
@@ -123,7 +148,7 @@ class Local:
     def status(self):
         with self.lock:
             fit = self.fit or {}
-            return {'name': NAME, 'file': FILE, 'size': SIZE, 'state': self.state, 'pct': self.pct, 'message': self.message,
+            return {'name': self.spec['name'], 'file': self.spec['file'], 'size': self.spec['size'], 'state': self.state, 'pct': self.pct, 'message': self.message,
                     'found_at': self.path and _folder_name(self.path), 'enabled': self.enabled(), 'runtime': bool(self.runner),
                     'needs_bytes': fit.get('needs'), 'ram_total': fit.get('ram_total'), 'placement': fit.get('placement'),
                     'load_s': (self.ready_info or {}).get('load_s'), 'places': [_folder_name(p) for p in places()[:6]]}
@@ -159,30 +184,36 @@ class Local:
             self.state, self.pct, self.message = 'absent', None, ''
         found, wrong = None, None
         for folder in places():
-            p = folder / FILE
-            try:
-                if not p.is_file():
+            for spec in MODELS:
+                p = folder / spec['file']
+                try:
+                    if not p.is_file():
+                        continue
+                    size = p.stat().st_size
+                except OSError:
                     continue
-                size = p.stat().st_size
-            except OSError:
-                continue
-            if size == SIZE:
-                found = p
+                if size == spec['size']:
+                    found = (spec, p)
+                    break
+                wrong = wrong or (spec, p, size)
+            if found:
                 break
-            wrong = wrong or (p, size)
         if not found:
             with self.lock:
                 if not self.enabled():
                     return
                 if wrong:
-                    p, size = wrong
-                    done = size < SIZE
+                    spec, p, size = wrong
+                    done = size < spec['size']
                     self.state = 'wrong'
-                    self.message = (f'The file in {_folder_name(p)} is {_gb(size)} of {_gb(SIZE)}. ' +
+                    self.message = (f'The file in {_folder_name(p)} is {_gb(size)} of {_gb(spec["size"])}. ' +
                                     ('The download may not have finished.' if done else 'It is not the file Lastbook expects.'))
                 else:
                     self.state = 'absent'
             return
+        spec, found = found
+        with self.lock:
+            self.spec = spec
         stamp = _stamp(found)
         if self.saved.get('checked') != stamp:
             if not self._check(found):
@@ -207,13 +238,13 @@ class Local:
                 while chunk := f.read(8 * 2**20):
                     h.update(chunk)
                     done += len(chunk)
-                    self.pct = int(done * 100 / SIZE)
+                    self.pct = int(done * 100 / self.spec['size'])
         except OSError as e:
             with self.lock:
                 if self.enabled():
                     self.state, self.pct, self.message = 'wrong', None, f'Lastbook could not read the model file ({type(e).__name__}).'
             return False
-        if h.hexdigest() != SHA256:
+        if h.hexdigest() != self.spec['sha256']:
             with self.lock:
                 if self.enabled():
                     self.state, self.pct = 'wrong', None
@@ -241,7 +272,7 @@ class Local:
                 if out is not None:
                     print('local AI: measure output:', out.stdout[-2000:], out.stderr[-3000:], flush=True)
                 return
-            self.fit = judge(fit)
+            self.fit = judge(fit, self.spec['size'])
             print('local AI: fit', json.dumps(self.fit), flush=True)
             if self.fit['fits']:
                 self.state, self.message = 'stopped', ''
@@ -398,7 +429,7 @@ class Local:
             while not events.empty():       # anything left from an answer that was stopped
                 events.get_nowait()
             req = {'op': 'gen', 'id': rid, 'segments': segments, 'max_tokens': max_tokens, 'temp': 0.2, 'top_k': 64, 'top_p': 0.95,
-                   'min_p': 0.05, 'seed': 1234 + rid, 'stop': ['<|tool_response>']}
+                   'min_p': 0.05, 'seed': 1234 + rid, 'stop': list(self.spec['stop'])}
             try:
                 proc.stdin.write((json.dumps(req, ensure_ascii=False) + '\n').encode('utf-8'))
             except OSError:
@@ -450,7 +481,7 @@ def _apple_silicon_linux(tree='/proc/device-tree'):
             return False
 
 
-def judge(fit):
+def judge(fit, size=SIZE):
     """Does the whole of it fit this computer? llama.cpp's fit places the model on the graphics memory it finds and counts
     the rest as the computer's own memory, which it takes to be unlimited. So the computer's own memory is checked here:
     on a Mac the two are one memory; on Windows the part placed on the graphics card is not in it."""
@@ -460,7 +491,7 @@ def judge(fit):
     unified = sys.platform == 'darwin' or _apple_silicon_linux()
     # Windows: weights left in the mapped file (not on a graphics card, not repacked) are outside llama.cpp's count, yet in use
     # while answering. Measured with no GPU: the fit said 9.6 GB, the program held 16.5 to 26 GB.
-    mapped = 0 if unified else max(0, SIZE - sum(m.get('model') or 0 for m in fit.get('memory') or []))
+    mapped = 0 if unified else max(0, size - sum(m.get('model') or 0 for m in fit.get('memory') or []))
     in_ram = dev + host if unified else host + mapped
     needs = in_ram + RESERVE
     placement = [{'device': m.get('desc') or m.get('name'), 'bytes': m['model'] + m['context'] + m['compute'], 'free': m.get('free')} for m in devices]
@@ -548,6 +579,13 @@ def declaration(tool):
 
 
 def render(msgs, tools):
+    """OpenAI-shaped messages to segments, in the prompt format of the model that was found."""
+    if LOCAL.spec['format'] == 'lfm2':
+        return _render_lfm(msgs, tools)
+    return _render_gemma(msgs, tools)
+
+
+def _render_gemma(msgs, tools):
     """OpenAI-shaped messages to Gemma 4 segments, as the model's chat template lays them out, with thinking off.
     System messages before the model's first reply in this turn go together at the top, as the evaluation gave them:
     instructions, then the sources, then the question."""
@@ -636,6 +674,13 @@ CALL = re.compile(r'<\|tool_call>call:([A-Za-z_][\w.-]*)\{(.*?)\}<tool_call\|>',
 
 
 def parse_calls(text):
+    """(text before the first call, [(name, arguments dict)]) from what the model that was found wrote."""
+    if LOCAL.spec['format'] == 'lfm2':
+        return _parse_lfm_calls(text)
+    return _parse_gemma_calls(text)
+
+
+def _parse_gemma_calls(text):
     """(text before the first call, [(name, arguments dict)]) from what the model wrote."""
     calls = []
     for m in CALL.finditer(text):
@@ -726,6 +771,188 @@ class _Args:
                 return float(w)
             except ValueError:
                 return w.strip('"')
+
+
+# --------------------------------------------------------------------------------------------------- LFM2 prompt format --
+# LFM2.5's chat template, as it ships inside the GGUF: turns between <|im_start|> and <|im_end|>, the tools listed
+# as JSON at the end of the system prompt, and tool calls written as <|tool_call_start|>[name(arg='value')]<|tool_call_end|>.
+# As in the Gemma format above, the system messages before the model's first reply go together at the top.
+
+
+def _lfm_arg(v):
+    """format_arg_value from the model's chat template, as plain text (a call here is text, not segments)."""
+    if isinstance(v, str):
+        return "'" + v.replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n').replace('\r', '\\r') + "'"
+    if v is None or isinstance(v, (bool, int, float, dict, list, tuple)):
+        return json.dumps(v, ensure_ascii=False)
+    return str(v)
+
+
+def _render_lfm(msgs, tools):
+    last_user = max((i for i, m in enumerate(msgs) if m['role'] == 'user'), default=-1)
+    first_reply = next((i for i, m in enumerate(msgs) if i > last_user and m['role'] in ('assistant', 'tool')), len(msgs))
+    top = [m for i, m in enumerate(msgs) if m['role'] == 'system' and i < first_reply]
+    rest = [m for i, m in enumerate(msgs) if not (m['role'] == 'system' and i < first_reply)]
+    system = '\n\n'.join(_text(m).strip() for m in top)
+    if tools:
+        system += ('\n' if system else '') + 'List of tools: [' + ', '.join(json.dumps(t, ensure_ascii=False) for t in tools) + ']'
+    seg = []
+    if system:
+        seg += [['<|im_start|>', True], ['system\n', False], [system, False], ['<|im_end|>', True], ['\n', False]]
+    for m in rest:
+        seg.append(['<|im_start|>', True])
+        seg.append([m['role'] + '\n', False])
+        if m['role'] == 'assistant':
+            content = _strip_lfm_thinking(_text(m)) if m.get('content') else ''
+            if content:
+                seg.append([content, False])
+            calls = m.get('tool_calls') or []
+            if calls:
+                parts = []
+                for c in calls:
+                    f = c['function']
+                    args = f.get('arguments')
+                    if isinstance(args, str):
+                        try:
+                            args = json.loads(args or '{}')
+                        except ValueError:
+                            args = {}
+                    parts.append(f['name'] + '(' + ', '.join(f'{k}={_lfm_arg((args or {})[k])}' for k in (args or {})) + ')')
+                seg += [['<|tool_call_start|>', True], ['[' + ', '.join(parts) + ']', False], ['<|tool_call_end|>', True]]
+        else:
+            seg.append([_text(m).strip(), False])
+        seg += [['<|im_end|>', True], ['\n', False]]
+    seg += [['<|im_start|>', True], ['assistant\n', False]]
+    return seg
+
+
+def _strip_lfm_thinking(text):
+    tag = 'think'     # the model's reasoning block, named indirectly: this file is also handled by tools that use the word as markup
+    return re.sub('<' + tag + '>.*?</' + tag + '>', '', text, flags=re.S).strip()
+
+
+LFM_CALL = re.compile(r'<\|tool_call_start\|>\s*\[(.*?)\]\s*<\|tool_call_end\|>', re.S)
+
+
+def _parse_lfm_calls(text):
+    text = _strip_lfm_thinking(text)
+    calls = []
+    for m in LFM_CALL.finditer(text):
+        try:
+            calls += _LfmCalls(m.group(1)).calls()
+        except ValueError:
+            continue
+    if calls:
+        cut = text.find('<|tool_call_start|>')
+        return (text if cut < 0 else text[:cut]), calls
+    # The model also writes a call as the whole reply with no markers around it — [name(arg='value')] right after
+    # its thinking — which is how it answered both test questions when given this file's own rendered prompt.
+    # Only a reply that is nothing but the bracketed list counts, so citations like [S1] in an answer never parse.
+    bare = re.fullmatch(r'\s*\[(.*)\]\s*', text, re.S)
+    if bare:
+        try:
+            return '', _LfmCalls(bare.group(1)).calls()
+        except ValueError:
+            pass
+    return text, calls
+
+
+class _LfmCalls:
+    """Reads LFM2's tool calls: name(arg='value', arg=2, arg=["a"]) — strings single-quoted with backslash escapes,
+    everything else as JSON (the template writes dicts and lists with tojson)."""
+
+    def __init__(self, s):
+        self.s, self.i = s, 0
+
+    def ws(self):
+        while self.i < len(self.s) and self.s[self.i] in ' \n\t\r':
+            self.i += 1
+
+    def calls(self):
+        out = []
+        while True:
+            self.ws()
+            if self.i >= len(self.s):
+                return out
+            k = re.compile(r'[A-Za-z_][\w.-]*').match(self.s, self.i)
+            if not k:
+                raise ValueError(self.s[self.i:self.i + 20])
+            name, self.i = k.group(0), k.end()
+            self.ws()
+            if not self.s.startswith('(', self.i):
+                raise ValueError('no open paren')
+            self.i += 1
+            out.append((name, self.args()))
+            self.ws()
+            if self.s.startswith(',', self.i):
+                self.i += 1
+
+    def args(self):
+        out = {}
+        while True:
+            self.ws()
+            if self.s.startswith(')', self.i):
+                self.i += 1
+                return out
+            k = re.compile(r'[A-Za-z_][\w-]*').match(self.s, self.i)
+            if not k:
+                raise ValueError(self.s[self.i:self.i + 20])
+            key, self.i = k.group(0), k.end()
+            self.ws()
+            if not self.s.startswith('=', self.i):
+                raise ValueError('no equals')
+            self.i += 1
+            out[key] = self.value()
+            self.ws()
+            if self.s.startswith(',', self.i):
+                self.i += 1
+
+    def value(self):
+        self.ws()
+        s = self.s
+        if s.startswith("'", self.i):
+            self.i += 1
+            out = []
+            while self.i < len(s):
+                c = s[self.i]
+                if c == '\\' and self.i + 1 < len(s):
+                    nxt = s[self.i + 1]
+                    out.append({'n': '\n', 'r': '\r', 't': '\t'}.get(nxt, nxt))
+                    self.i += 2
+                elif c == "'":
+                    self.i += 1
+                    return ''.join(out)
+                else:
+                    out.append(c)
+                    self.i += 1
+            raise ValueError('open string')
+        # a JSON value (string, number, true/false/null, [..] or {..}): scan to its end by depth
+        start, depth, instr, esc = self.i, 0, False, False
+        while self.i < len(s):
+            c = s[self.i]
+            if instr:
+                if esc:
+                    esc = False
+                elif c == '\\':
+                    esc = True
+                elif c == '"':
+                    instr = False
+            elif c == '"':
+                instr = True
+            elif c in '[{':
+                depth += 1
+            elif c in ']}':
+                if depth == 0:
+                    break
+                depth -= 1
+            elif c in ',)' and depth == 0:
+                break
+            self.i += 1
+        w = s[start:self.i].strip()
+        try:
+            return json.loads(w)
+        except ValueError:
+            return w
 
 
 # ------------------------------------------------------------------------------------------------------------ helpers --

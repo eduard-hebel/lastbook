@@ -93,9 +93,12 @@ enum InstallCatalog {
         return out
     }
 
-    /// The local AI model the app is built for (LocalAI's Gemma4 identity), if the download list has it.
+    /// The local AI model the app knows (LocalAI's KnownModels identities), if the download list has it.
     static var model: CatalogEntry? {
-        entries.first { $0.kind == .model && $0.files.first?.name == Gemma4.file && $0.files.first?.sha256 == Gemma4.sha256 }
+        entries.first { e in
+            guard e.kind == .model, let f = e.files.first, let spec = KnownModels.named(f.name) else { return false }
+            return f.sha256 == spec.sha256
+        }
     }
 
     static func entry(_ kind: CatalogEntry.Kind, _ id: String) -> CatalogEntry? { entries.first { $0.kind == kind && $0.id == id } }

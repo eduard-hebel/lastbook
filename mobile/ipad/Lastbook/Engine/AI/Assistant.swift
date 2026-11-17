@@ -272,7 +272,8 @@ enum Assistant {
 
     /// One model turn from the local AI (desktop _local_round).
     static func localRound(_ model: LocalModel, _ msgs: [Rec], _ tools: [Rec]?, _ cancelled: @escaping () -> Bool, _ wrote: @escaping (String) -> Void) -> Round {
-        guard let segs = fitPrompt(msgs, tools) else {
+        let lfm = model.format == "lfm2"
+        guard let segs = fitPrompt(msgs, tools, model.format) else {
             return .failed("The question and its sources were too long for the local AI. Start a new chat or ask a shorter question.")
         }
         var text = "", sent = 0
@@ -281,8 +282,8 @@ enum Assistant {
             done = try model.generate(segments: segs, maxTokens: ROUND_TOKENS, cancelled: cancelled) { t in
                 // The person sees the answer as it is written, up to the first tool call, which is markup.
                 text += t
-                let head = text.range(of: "<|tool_call>").map { String(text[..<$0.lowerBound]) } ?? text
-                let visible = Array(lstrip(hideThinking(head)).unicodeScalars)
+                let head = text.range(of: lfm ? "<|tool_call_start|>" : "<|tool_call>").map { String(text[..<$0.lowerBound]) } ?? text
+                let visible = Array(lstrip(lfm ? hideLfmThinking(head) : hideThinking(head)).unicodeScalars)
                 if visible.count > sent {
                     wrote(String(String.UnicodeScalarView(visible[sent...])))
                     sent = visible.count
@@ -292,9 +293,9 @@ enum Assistant {
             return .failed("\(error)")
         }
         if done.s("reason") == "cancel" { return .stopped }
-        let (content, found) = GemmaPrompt.parseCalls(text)
+        let (content, found) = lfm ? LFMPrompt.parseCalls(text) : GemmaPrompt.parseCalls(text)
         let calls = tools == nil ? [] : found.enumerated().map { (id: "call_\($0.offset)", name: $0.element.0, args: $0.element.1) }
-        return .answer(pyStrip(hideThinking(content)), calls)
+        return .answer(pyStrip(lfm ? hideLfmThinking(content) : hideThinking(content)), calls)
     }
 
     /// After a tool response the model's turn continues without the prompt's empty thought channel, and Gemma then often
@@ -306,19 +307,27 @@ enum Assistant {
         return t
     }
 
+    /// The same for the small model's reasoning blocks: closed ones go, and an unfinished one hides what follows it
+    /// until it closes (LFMPrompt.parseCalls strips them from the finished reply in any case).
+    static func hideLfmThinking(_ s: String) -> String {
+        var t = LFMPrompt.stripThinking(s)
+        if let open = t.range(of: LFMPrompt.thinkOpen) { t = String(t[..<open.lowerBound]) }
+        return t
+    }
+
     static func lstrip(_ s: String) -> String {
         var v = Substring(s).unicodeScalars[...]
         while let f = v.first, f.properties.isWhitespace { v = v.dropFirst() }
         return String(String.UnicodeScalarView(v))
     }
 
-    /// The prompt in Gemma's segments, short enough to leave room for the answer: the oldest past questions and answers go
+    /// The prompt in the model's own segments, short enough to leave room for the answer: the oldest past questions and answers go
     /// first, then the longest tool results are shortened. nil if even that is too long (desktop _fit_prompt).
-    static func fitPrompt(_ msgs: [Rec], _ tools: [Rec]?) -> [Segment]? {
+    static func fitPrompt(_ msgs: [Rec], _ tools: [Rec]?, _ format: String) -> [Segment]? {
         let room = Double(LlamaLocal.CTX - ROUND_TOKENS - 64)
         var work = msgs
         while true {
-            let segs = GemmaPrompt.render(work, tools: tools)
+            let segs = format == "lfm2" ? LFMPrompt.render(work, tools: tools) : GemmaPrompt.render(work, tools: tools)
             if GemmaPrompt.sizeOf(segs) <= room { return segs }
             let lastUser = work.indices.last(where: { work[$0].s("role") == "user" }) ?? -1
             if let old = work.indices.first(where: { ["user", "assistant"].contains(work[$0].s("role")) && $0 < lastUser }) {
