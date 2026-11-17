@@ -58,7 +58,11 @@ on an allowed host.
     {"id": "lfm2.5-2.6b", "title": "LFM2.5 2.6B", "file": "LFM2.5-2.6B-Q4_K_M.gguf",
      "url": "https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF/resolve/e7caca5d835a3901a8e0d63e94009429bafafdfc/LFM2.5-2.6B-Q4_K_M.gguf?download=true",
      "size": 1674455040, "sha256": "02a8b7e17487d326e46d68ce0ba24211e1b80a14c4cd0597fa73c1cd697f52ed",
-     "memory_bytes": 2164260864, "available": true}
+     "memory_bytes": 2164260864, "available": true},
+    {"id": "lfm3-1.7b", "title": "LFM3 1.7B", "file": "LFM3-1.7B-Q4_K_M.gguf",
+     "url": "https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/resolve/cd0c74c575b5c416f3011b5b4c298077f26ca8c2/LFM3-1.7B-Q4_K_M.gguf?download=true",
+     "size": 1099627808, "sha256": "3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4",
+     "memory_bytes": 1650458624, "available": true}
   ]
 }
 ```

@@ -3,11 +3,11 @@ import Foundation
 import UIKit
 #endif
 
-/// The in-process local AI boundary. Lastbook knows two models: Gemma 4 26B A4B (Unsloth UD-Q4_K_M) for machines with
-/// the memory for it, and the small LFM2.5 2.6B (Liquid AI, Q4_K_M), the size class a phone can hold. Both run by
-/// llama.cpp dde879bc (the desktop's pinned commit) linked into the app (Engine/AI/LlamaLocal.swift, llm/). There is no
-/// cloud AI and no fallback model. Gemma 4 loaded and answered on a physical M1 iPad Pro (16 GB) in testing; the small
-/// model is new and still has to prove itself on a physical phone.
+/// The in-process local AI boundary. Lastbook knows three models: Gemma 4 26B A4B (Unsloth UD-Q4_K_M) for machines with
+/// the memory for it, and two small ones from Liquid AI, LFM2.5 2.6B and LFM3 1.7B (both Q4_K_M), the size class a
+/// phone can hold. All run by llama.cpp dde879bc (the desktop's pinned commit) linked into the app
+/// (Engine/AI/LlamaLocal.swift, llm/). There is no cloud AI and no fallback model. Gemma 4 loaded and answered on a
+/// physical M1 iPad Pro (16 GB) in testing; the small models are new and still have to prove themselves on a phone.
 protocol LocalModel: AnyObject {
     /// "absent", "wrong", "checking", "measuring", "too_big", "stopped", "loading", "ready", "error", "off" (desktop llm_local.Local).
     var state: String { get }
@@ -15,7 +15,7 @@ protocol LocalModel: AnyObject {
     func status() -> Rec
     /// True when a question can be answered: running, or ready to load.
     var available: Bool { get }
-    /// Which prompt format the loaded model speaks: "gemma4" or "lfm2" (desktop llm_local MODELS' format).
+    /// Which prompt format the loaded model speaks: "gemma4", "lfm2" or "lfm3" (desktop llm_local MODELS' format).
     var format: String { get }
     /// Look for the file again (desktop "Look again").
     func discover()
@@ -49,7 +49,7 @@ struct ModelSpec {
     let file: String
     let size: Int64
     let sha256: String
-    let format: String   // "gemma4" or "lfm2": which prompt format and tool-call notation it uses
+    let format: String   // "gemma4", "lfm2" or "lfm3": which prompt format and tool-call notation it uses
     let stop: String     // the token text that ends one of its replies
 }
 
@@ -76,10 +76,22 @@ enum LFM25 {
     static let sha256 = spec.sha256
 }
 
+/// Pinned identity of the smallest model, copied from desktop llm_local.py: Liquid AI's LFM3 1.7B, about
+/// 1.0 GB on disk, the first one small enough to be the realistic phone option.
+enum LFM3 {
+    static let spec = ModelSpec(id: "lfm3-1.7b", name: "LFM3 1.7B (Liquid AI 4-bit, Q4_K_M)",
+                                file: "LFM3-1.7B-Q4_K_M.gguf", size: 1_099_627_808,
+                                sha256: "3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4",
+                                format: "lfm3", stop: "<|im_end|>")
+    static let file = spec.file
+    static let size = spec.size
+    static let sha256 = spec.sha256
+}
+
 /// Every model Lastbook knows, biggest first (desktop MODELS): the first one found on disk, in size order per
 /// folder, is the one that runs.
 enum KnownModels {
-    static let all = [Gemma4.spec, LFM25.spec]
+    static let all = [Gemma4.spec, LFM25.spec, LFM3.spec]
     static func named(_ file: String) -> ModelSpec? { all.first { $0.file == file } }
 }
 

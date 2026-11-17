@@ -35,7 +35,8 @@ SOURCE = 'unsloth/gemma-4-26B-A4B-it-GGUF, revision c099eb48e663fd284577b04978a9
 # Every model Lastbook can run, identified by its published file. The first entry is the default above: the one
 # status() describes before any file is found, and the one setup offers where it fits. A smaller model later in
 # the list is how the local AI reaches machines the default cannot: the 2.6B file is about a tenth of the size,
-# and measured with a 16,384-token context the program held about 2.1 GB, where Gemma 4 needs about 17 GB.
+# and measured with a 16,384-token context the program held about 2.1 GB, where Gemma 4 needs about 17 GB. The
+# 1.7B file is smaller again (about 1.0 GB on disk, about 1.6 GB held measured the same way).
 MODELS = [
     {'id': 'gemma-4-26b-a4b', 'title': 'Gemma 4 26B A4B', 'file': FILE, 'size': SIZE, 'sha256': SHA256, 'name': NAME, 'source': SOURCE,
      'format': 'gemma4', 'stop': ['<|tool_response>']},
@@ -44,6 +45,11 @@ MODELS = [
      'name': 'LFM2.5 2.6B (Liquid AI 4-bit, Q4_K_M)',
      'source': 'LiquidAI/LFM2.5-2.6B-GGUF, revision e7caca5d835a3901a8e0d63e94009429bafafdfc',
      'format': 'lfm2', 'stop': ['<|im_end|>']},
+    {'id': 'lfm3-1.7b', 'title': 'LFM3 1.7B', 'file': 'LFM3-1.7B-Q4_K_M.gguf', 'size': 1_099_627_808,
+     'sha256': '3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4',
+     'name': 'LFM3 1.7B (Liquid AI 4-bit, Q4_K_M)',
+     'source': 'LiquidAI/LFM3-1.7B-GGUF, revision cd0c74c575b5c416f3011b5b4c298077f26ca8c2',
+     'format': 'lfm3', 'stop': ['<|im_end|>']},
 ]
 
 
@@ -580,6 +586,8 @@ def declaration(tool):
 
 def render(msgs, tools):
     """OpenAI-shaped messages to segments, in the prompt format of the model that was found."""
+    if LOCAL.spec['format'] == 'lfm3':
+        return _render_lfm3(msgs, tools)
     if LOCAL.spec['format'] == 'lfm2':
         return _render_lfm(msgs, tools)
     return _render_gemma(msgs, tools)
@@ -675,6 +683,8 @@ CALL = re.compile(r'<\|tool_call>call:([A-Za-z_][\w.-]*)\{(.*?)\}<tool_call\|>',
 
 def parse_calls(text):
     """(text before the first call, [(name, arguments dict)]) from what the model that was found wrote."""
+    if LOCAL.spec['format'] == 'lfm3':
+        return _parse_lfm3_calls(text)
     if LOCAL.spec['format'] == 'lfm2':
         return _parse_lfm_calls(text)
     return _parse_gemma_calls(text)
@@ -953,6 +963,92 @@ class _LfmCalls:
             return json.loads(w)
         except ValueError:
             return w
+
+
+# --------------------------------------------------------------------------------------------------- LFM3 prompt format --
+# LFM3's chat template, as it ships inside the GGUF: the same <|im_start|>/<|im_end|> turns as LFM2, but the
+# tools sit in a <tools> block at the end of the system prompt, a tool call is written as XML
+# (<tool_call><function=name><parameter=k>v</parameter></function></tool_call>), and a tool result is wrapped
+# in <tool_response>. The template can also open a <think> block before the answer; the prompt below fills that
+# block in empty, the template's own no-thinking path. Left open, the model spent a whole 1,800-token round
+# reasoning on the hardest questions in testing and never reached an answer; the app wants the answer itself.
+
+
+def _lfm3_arg(v):
+    """render_value from the model's chat template: a string as it is, everything else as JSON."""
+    if isinstance(v, str):
+        return v
+    if v is None or isinstance(v, (bool, int, float, dict, list, tuple)):
+        return json.dumps(v, ensure_ascii=False)
+    return str(v)
+
+
+def _render_lfm3(msgs, tools):
+    top = []
+    for m in msgs:
+        if m['role'] == 'assistant':
+            break
+        if m['role'] == 'system':
+            top.append(m)
+    rest = msgs[len(top):]
+    system = '\n\n'.join(_text(m) for m in top if _text(m).strip()).strip()
+    if tools:
+        system += ('\n' if system else '') + '<tools>\n' + '\n'.join(
+            json.dumps(t.get('function', t), ensure_ascii=False) for t in tools) + '\n</tools>'
+    seg = []
+    if system:
+        seg += [['<|im_start|>', True], ['system\n', False], [system, False], ['<|im_end|>', True], ['\n', False]]
+    for m in rest:
+        seg.append(['<|im_start|>', True])
+        seg.append([m['role'] + '\n', False])
+        if m['role'] == 'assistant':
+            if _text(m):
+                seg.append([_strip_lfm_thinking(_text(m)), False])
+            calls = []
+            for c in m.get('tool_calls') or []:
+                f = c['function']
+                a = f.get('arguments')
+                if isinstance(a, str):
+                    try:
+                        a = json.loads(a or '{}')
+                    except ValueError:
+                        a = {}
+                calls.append('<tool_call>\n<function=' + f['name'] + '>\n' + ''.join(
+                    f'<parameter={k}>\n{_lfm3_arg(v)}\n</parameter>\n' for k, v in (a or {}).items()) + '</function>\n</tool_call>')
+            if calls:
+                seg.append(['\n\n'.join(calls), False])
+        elif m['role'] == 'tool':
+            seg.append(['<tool_response>\n' + _text(m).strip() + '\n</tool_response>', False])
+        else:
+            seg.append([_text(m).strip(), False])
+        seg += [['<|im_end|>', True], ['\n', False]]
+    seg += [['<|im_start|>', True], ['assistant\n', False], ['<think></think>', True]]
+    return seg
+
+
+LFM3_CALL = re.compile(r'<tool_call>\s*<function=([\w.-]+)>(.*?)</function>\s*</tool_call>', re.S)
+LFM3_PARAM = re.compile(r'<parameter=([\w-]+)>(.*?)</parameter>', re.S)
+
+
+def _parse_lfm3_calls(text):
+    """(text before the first call, [(name, arguments dict)]) from what LFM3 wrote: the XML calls above."""
+    text = _strip_lfm_thinking(text)
+    calls = []
+    for m in LFM3_CALL.finditer(text):
+        args = {}
+        for p in LFM3_PARAM.finditer(m.group(2)):
+            v = p.group(2)
+            if v.startswith('\n'):
+                v = v[1:]
+            if v.endswith('\n'):
+                v = v[:-1]
+            try:
+                args[p.group(1)] = json.loads(v)
+            except ValueError:
+                args[p.group(1)] = v
+        calls.append((m.group(1), args))
+    cut = text.find('<tool_call>')
+    return (text if cut < 0 else text[:cut]), calls
 
 
 # ------------------------------------------------------------------------------------------------------------ helpers --

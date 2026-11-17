@@ -272,7 +272,8 @@ enum Assistant {
 
     /// One model turn from the local AI (desktop _local_round).
     static func localRound(_ model: LocalModel, _ msgs: [Rec], _ tools: [Rec]?, _ cancelled: @escaping () -> Bool, _ wrote: @escaping (String) -> Void) -> Round {
-        let lfm = model.format == "lfm2"
+        let lfm = model.format == "lfm2" || model.format == "lfm3"
+        let callMark = model.format == "lfm3" ? "<tool_call>" : (model.format == "lfm2" ? "<|tool_call_start|>" : "<|tool_call>")
         guard let segs = fitPrompt(msgs, tools, model.format) else {
             return .failed("The question and its sources were too long for the local AI. Start a new chat or ask a shorter question.")
         }
@@ -282,7 +283,7 @@ enum Assistant {
             done = try model.generate(segments: segs, maxTokens: ROUND_TOKENS, cancelled: cancelled) { t in
                 // The person sees the answer as it is written, up to the first tool call, which is markup.
                 text += t
-                let head = text.range(of: lfm ? "<|tool_call_start|>" : "<|tool_call>").map { String(text[..<$0.lowerBound]) } ?? text
+                let head = text.range(of: callMark).map { String(text[..<$0.lowerBound]) } ?? text
                 let visible = Array(lstrip(lfm ? hideLfmThinking(head) : hideThinking(head)).unicodeScalars)
                 if visible.count > sent {
                     wrote(String(String.UnicodeScalarView(visible[sent...])))
@@ -293,7 +294,7 @@ enum Assistant {
             return .failed("\(error)")
         }
         if done.s("reason") == "cancel" { return .stopped }
-        let (content, found) = lfm ? LFMPrompt.parseCalls(text) : GemmaPrompt.parseCalls(text)
+        let (content, found) = model.format == "lfm3" ? LFM3Prompt.parseCalls(text) : (lfm ? LFMPrompt.parseCalls(text) : GemmaPrompt.parseCalls(text))
         let calls = tools == nil ? [] : found.enumerated().map { (id: "call_\($0.offset)", name: $0.element.0, args: $0.element.1) }
         return .answer(pyStrip(lfm ? hideLfmThinking(content) : hideThinking(content)), calls)
     }
@@ -327,7 +328,7 @@ enum Assistant {
         let room = Double(LlamaLocal.CTX - ROUND_TOKENS - 64)
         var work = msgs
         while true {
-            let segs = format == "lfm2" ? LFMPrompt.render(work, tools: tools) : GemmaPrompt.render(work, tools: tools)
+            let segs = format == "lfm3" ? LFM3Prompt.render(work, tools: tools) : (format == "lfm2" ? LFMPrompt.render(work, tools: tools) : GemmaPrompt.render(work, tools: tools))
             if GemmaPrompt.sizeOf(segs) <= room { return segs }
             let lastUser = work.indices.last(where: { work[$0].s("role") == "user" }) ?? -1
             if let old = work.indices.first(where: { ["user", "assistant"].contains(work[$0].s("role")) && $0 < lastUser }) {
