@@ -23,9 +23,10 @@ class Base(unittest.TestCase):
         self.dir = Path(tmp.name)
         self.model = self.dir / llm_local.FILE
         self.model.write_bytes(TINY)
+        # The default model in MODELS is discovered by its pinned size and digest, so replace that entry too.
+        self.spec = dict(llm_local.MODELS[0], size=len(TINY), sha256=hashlib.sha256(TINY).hexdigest())
         for patch in (mock.patch.object(llm_local, 'STATE_FILE', self.dir / 'llm' / 'state.json'),
-                      mock.patch.object(llm_local, 'SIZE', len(TINY)),
-                      mock.patch.object(llm_local, 'SHA256', hashlib.sha256(TINY).hexdigest()),
+                      mock.patch.object(llm_local, 'MODELS', [self.spec]),
                       mock.patch.object(llm_local, 'places', lambda: [self.dir])):
             patch.start()
             self.addCleanup(patch.stop)

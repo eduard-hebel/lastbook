@@ -4,7 +4,7 @@ import CryptoKit
 import LastbookLLM
 #endif
 
-/// A known local model (Gemma 4 26B A4B, or the small LFM2.5 2.6B), run in this process by llama.cpp (llm/lastbook_llm_bridge.cpp). It mirrors desktop
+/// A known local model (Gemma 4 26B A4B, or one of the small LFM2.5 2.6B and LFM3 1.7B models), run in this process by llama.cpp (llm/lastbook_llm_bridge.cpp). It mirrors desktop
 /// llm_local.Local: the same states, the same once-only size and SHA-256 check (remembered by path, size and modification time),
 /// llama.cpp's own fit before loading, a 16,384-token context, idle stop after 15 minutes, one retry after a failed load.
 /// Nothing here opens a socket and nothing is downloaded.

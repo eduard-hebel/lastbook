@@ -1,8 +1,8 @@
 """The optional local AI: a model run on this computer by lastbook-llm, a program of ours that speaks only through pipes.
 
-Two models are known: Gemma 4 26B A4B (the default, for computers with the memory for it) and LFM2.5 2.6B
-(Liquid AI's small on-device model, for computers and tablets with little memory, and phones). Which one runs is
-decided by which published model file is found; everything else in this file is the same for both.
+Three models are known: Gemma 4 26B A4B (the default, for computers with the memory for it), and two of Liquid
+AI's small on-device models, LFM2.5 2.6B and LFM3 1.7B, for computers and tablets with little memory, and phones.
+Which one runs is decided by which published model file is found; everything else in this file is the same for all.
 
 Nothing here opens a socket or reaches past this computer. The model is a file the person downloads from the website, outside the
 app. Lastbook finds it inside the selected library or an explicitly configured model folder, checks the published file, asks llama.cpp
@@ -10,7 +10,7 @@ whether it fits this computer's memory, and starts it when someone asks a questi
 when turned off, and when the app quits (the program leaves when its standard input closes).
 
 assistant.py calls round() for each model turn, with OpenAI-shaped messages. This file turns them into the model's own prompt
-format (Gemma 4's, or LFM2's chat template), sends that as segments (template markup, where special tokens count, or plain text, where they never do: a document
+format (Gemma 4's, LFM2's or LFM3's chat template), sends that as segments (template markup, where special tokens count, or plain text, where they never do: a document
 cannot start a turn of its own), and turns the model's tool calls back into the shape assistant.py already handles.
 """
 import hashlib
@@ -56,6 +56,8 @@ MODELS = [
 def model_named(filename):
     """The known model a file name claims to be, or None."""
     return next((m for m in MODELS if m['file'] == filename), None)
+
+
 CTX = 16384               # tokens the model holds: the system prompt, sources, the conversation and the answer
 RESERVE = 2.5 * 2**30     # memory left for the system and the rest of Lastbook beyond what llama.cpp measures for the model
 IDLE_STOP = int(os.environ.get('LASTBOOK_AI_IDLE_S') or 15 * 60)   # seconds without a question before the model is stopped, to give its memory back
@@ -681,6 +683,14 @@ def size_of(segments):
 CALL = re.compile(r'<\|tool_call>call:([A-Za-z_][\w.-]*)\{(.*?)\}<tool_call\|>', re.S)
 
 
+CALL_MARKERS = {'gemma4': '<|tool_call>', 'lfm2': '<|tool_call_start|>', 'lfm3': '<tool_call>'}
+
+
+def call_marker():
+    """The markup that opens a tool call in the format of the model that was found, so streaming can stop at it."""
+    return CALL_MARKERS.get(LOCAL.spec['format'], '<|tool_call>')
+
+
 def parse_calls(text):
     """(text before the first call, [(name, arguments dict)]) from what the model that was found wrote."""
     if LOCAL.spec['format'] == 'lfm3':
@@ -794,7 +804,7 @@ def _lfm_arg(v):
     if isinstance(v, str):
         return "'" + v.replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n').replace('\r', '\\r') + "'"
     if v is None or isinstance(v, (bool, int, float, dict, list, tuple)):
-        return json.dumps(v, ensure_ascii=False)
+        return json.dumps(v, ensure_ascii=False, sort_keys=True)
     return str(v)
 
 
@@ -805,7 +815,7 @@ def _render_lfm(msgs, tools):
     rest = [m for i, m in enumerate(msgs) if not (m['role'] == 'system' and i < first_reply)]
     system = '\n\n'.join(_text(m).strip() for m in top)
     if tools:
-        system += ('\n' if system else '') + 'List of tools: [' + ', '.join(json.dumps(t, ensure_ascii=False) for t in tools) + ']'
+        system += ('\n' if system else '') + 'List of tools: [' + ', '.join(json.dumps(t, ensure_ascii=False, sort_keys=True) for t in tools) + ']'
     seg = []
     if system:
         seg += [['<|im_start|>', True], ['system\n', False], [system, False], ['<|im_end|>', True], ['\n', False]]
@@ -827,7 +837,7 @@ def _render_lfm(msgs, tools):
                             args = json.loads(args or '{}')
                         except ValueError:
                             args = {}
-                    parts.append(f['name'] + '(' + ', '.join(f'{k}={_lfm_arg((args or {})[k])}' for k in (args or {})) + ')')
+                    parts.append(f['name'] + '(' + ', '.join(f'{k}={_lfm_arg((args or {})[k])}' for k in sorted(args or {})) + ')')
                 seg += [['<|tool_call_start|>', True], ['[' + ', '.join(parts) + ']', False], ['<|tool_call_end|>', True]]
         else:
             seg.append([_text(m).strip(), False])
@@ -861,7 +871,9 @@ def _parse_lfm_calls(text):
     bare = re.fullmatch(r'\s*\[(.*)\]\s*', text, re.S)
     if bare:
         try:
-            return '', _LfmCalls(bare.group(1)).calls()
+            found = _LfmCalls(bare.group(1)).calls()
+            if found:
+                return '', found
         except ValueError:
             pass
     return text, calls
@@ -979,22 +991,19 @@ def _lfm3_arg(v):
     if isinstance(v, str):
         return v
     if v is None or isinstance(v, (bool, int, float, dict, list, tuple)):
-        return json.dumps(v, ensure_ascii=False)
+        return json.dumps(v, ensure_ascii=False, sort_keys=True)
     return str(v)
 
 
 def _render_lfm3(msgs, tools):
-    top = []
-    for m in msgs:
-        if m['role'] == 'assistant':
-            break
-        if m['role'] == 'system':
-            top.append(m)
-    rest = msgs[len(top):]
-    system = '\n\n'.join(_text(m) for m in top if _text(m).strip()).strip()
+    last_user = max((i for i, m in enumerate(msgs) if m['role'] == 'user'), default=-1)
+    first_reply = next((i for i, m in enumerate(msgs) if i > last_user and m['role'] in ('assistant', 'tool')), len(msgs))
+    top = [m for i, m in enumerate(msgs) if m['role'] == 'system' and i < first_reply]
+    rest = [m for i, m in enumerate(msgs) if not (m['role'] == 'system' and i < first_reply)]
+    system = '\n\n'.join(_text(m).strip() for m in top).strip()
     if tools:
         system += ('\n' if system else '') + '<tools>\n' + '\n'.join(
-            json.dumps(t.get('function', t), ensure_ascii=False) for t in tools) + '\n</tools>'
+            json.dumps(t.get('function', t), ensure_ascii=False, sort_keys=True) for t in tools) + '\n</tools>'
     seg = []
     if system:
         seg += [['<|im_start|>', True], ['system\n', False], [system, False], ['<|im_end|>', True], ['\n', False]]
@@ -1014,7 +1023,7 @@ def _render_lfm3(msgs, tools):
                     except ValueError:
                         a = {}
                 calls.append('<tool_call>\n<function=' + f['name'] + '>\n' + ''.join(
-                    f'<parameter={k}>\n{_lfm3_arg(v)}\n</parameter>\n' for k, v in (a or {}).items()) + '</function>\n</tool_call>')
+                    f'<parameter={k}>\n{_lfm3_arg(v)}\n</parameter>\n' for k, v in sorted((a or {}).items())) + '</function>\n</tool_call>')
             if calls:
                 seg.append(['\n\n'.join(calls), False])
         elif m['role'] == 'tool':

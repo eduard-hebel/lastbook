@@ -25,9 +25,11 @@ sys.path[:0] = [str(ROOT)]
 import llm_local                                   # noqa: E402  (constants only: importing it starts nothing)
 from engine.setup import download, manifest        # noqa: E402
 
-MEASURED_MEMORY = 18_160_150_464 + 867_233_792     # Mac Studio M3 Ultra, 12 Nov 2026, --ctx 16384: device_bytes + host_bytes
-LFM_MEASURED_MEMORY = 2064 * 1024 * 1024           # llama-server peak RSS after generating, 4 slots, --ctx 16384, Linux VM, 17 Nov 2026 — re-measure with lastbook-llm --measure before release
-LFM3_MEASURED_MEMORY = 1574 * 1024 * 1024          # same measure for LFM3 1.7B, 17 Nov 2026 — re-measure with lastbook-llm --measure before release
+MEASURED_MEMORY = {
+    'gemma-4-26b-a4b': 18_160_150_464 + 867_233_792,   # Mac Studio M3 Ultra, 12 Nov 2026, --ctx 16384: device_bytes + host_bytes
+    'lfm2.5-2.6b': 2064 * 1024 * 1024,                 # llama-server peak RSS after generating, 4 slots, --ctx 16384, Linux VM, 17 Nov 2026 — re-measure with lastbook-llm --measure before release
+    'lfm3-1.7b': 1574 * 1024 * 1024,                   # same measure for LFM3 1.7B, 17 Nov 2026 — re-measure with lastbook-llm --measure before release
+}
 BASE = 'https://downloads.lastbook.org'     # live since 12 Nov 2026; packs and maps are accepted from this host only
 SMALL_SUMMARY = 'The essentials: first aid, water, food, shelter and repair, with the maps of this area.'
 
@@ -86,9 +88,10 @@ def main():
                 pass
     if not packs:
         sys.exit(f'no packs: {a.packs} is missing or empty (publish-packs writes it); --small-from builds Small alone')
-    models = [model_entry(llm_local.MODELS[0], measure(a.measure) if a.measure else MEASURED_MEMORY),
-              model_entry(llm_local.MODELS[1], LFM_MEASURED_MEMORY),
-              model_entry(llm_local.MODELS[2], LFM3_MEASURED_MEMORY)]
+    measured = dict(MEASURED_MEMORY)
+    if a.measure:
+        measured[llm_local.MODELS[0]['id']] = measure(a.measure)   # the flag still measures the default model
+    models = [model_entry(spec, measured[spec['id']]) for spec in llm_local.MODELS]
     out = {'version': 1, 'published': src.get('published') or time.strftime('%Y-%m-%d'), 'packs': packs, 'maps': list(src.get('maps') or []),
            'address_indexes': list(src.get('address_indexes') or []),
            'models': models}

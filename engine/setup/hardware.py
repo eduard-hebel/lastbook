@@ -347,6 +347,7 @@ def measure_ai(llm_local, model_path, timeout=180):
     runner = llm_local.runner_path()
     if not runner or not Path(model_path).is_file():
         return None
+    size = Path(model_path).stat().st_size     # the judge needs the found model's size, which is not Gemma's for every file
     threads = max(4, min(16, (os.cpu_count() or 8) // 2))
     argv = [str(runner), '--model', str(model_path), '--ctx', str(llm_local.CTX), '--threads', str(threads), '--measure']
     kw = {'creationflags': 0x08000000} if os.name == 'nt' else {}     # CREATE_NO_WINDOW
@@ -357,7 +358,7 @@ def measure_ai(llm_local, model_path, timeout=180):
         return None
     if not fit:
         return None
-    j = llm_local.judge(fit)
+    j = llm_local.judge(fit, size)
     return {'fits': bool(j['fits']), 'needs_bytes': int(j['needs']), 'estimate': False,
             'why': j.get('why') or f'Measured on this computer: the local AI needs about {_gb(j["needs"])} of memory, and it fits.'}
 
