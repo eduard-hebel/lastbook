@@ -1,0 +1,105 @@
+{
+ "box": {
+  "east": 16.5775,
+  "north": 48.3227,
+  "source": "docs/REGIONS-AT.md, BEV VGD 01.04.2026, unpadded",
+  "south": 48.1179,
+  "west": 16.1818
+ },
+ "fixture_files": {
+  "national.sqlite": {
+   "bytes": 380928,
+   "sha256": "47f898439b33c52e6cd0edd468091510c45fc96e56c9f9c1657e54452182e45b"
+  },
+  "places.sqlite": {
+   "bytes": 389120,
+   "sha256": "a745abef3e391f462dcae05372b091a4ecc1cb9d2b601dae1ddd98fdb6e28a13"
+  }
+ },
+ "generated": "2026-11-22",
+ "layers": {
+  "national.feat layer=place": "1082 BEV named points (cls city/town/suburb/village/hamlet/locality)",
+  "national.poi": "2344 OSM help points (hospital, pharmacy, fire_station, police, drinking_water)",
+  "places.place": "1082 BEV rows + 567 named OSM rows"
+ },
+ "limitations": [
+  "Place names are points. BEV DLM Geographische Namen is not the address register, so street addresses and house numbers are absent.",
+  "OpenStreetMap help points are community-mapped and may be incomplete or stale; the OSM base timestamp is recorded above.",
+  "No terrain, buildings, crops, water lines or dams are present. The fixture is not a complete map.",
+  "The canonical Overpass endpoints timed out from this host; the mirror named above is the actual endpoint used.",
+  "An AT-9 build from the current US source snapshot would inherit the US low-zoom base and US gazetteer place rows, because base_set copies non-OpenStreetMap places without a region box. This fixture avoids that by making the base from a Vienna-only source.",
+  "packaging/state_maps.py scan() requires the map-set file list to equal its ALLOWED set, so a provenance file inside the set fails the contract.",
+  "map-set.json accepts only name, files, bytes and seconds; engine/setup/manifest.py rebuilds map entries from known fields and drops an extra attribution key. Neither file carries this provenance today."
+ ],
+ "map_id": "AT-9",
+ "not_claimed": [
+  "not that the manifest or map-set.json transfers this provenance",
+  "not that the map set is publishable or complete",
+  "not that BEV, the BMI or the City of Vienna reviewed this extract",
+  "not that the OSM extract is complete"
+ ],
+ "schema": "lastbook-map-provenance/1",
+ "sources": [
+  {
+   "access_date": "2026-11-22",
+   "bytes": 58527744,
+   "catalogue_url": "https://data.bev.gv.at/geonetwork/srv/eng/csw?service=CSW&version=2.0.2&request=GetRecordById&id=49ca903b-2ca8-4751-8b5d-490bb73dcfec&elementSetName=full&outputSchema=http://www.isotc211.org/2005/gmd",
+   "committed_sample": {
+    "bytes": 249117,
+    "path": "sample/bev-vienna-names-20260323.json",
+    "sha256": "4fb0d08032249b054ac2a797a810df7ee92f00b66823245313ea875c9ada776d"
+   },
+   "credit": "© BEV - Bundesamt für Eich- und Vermessungswesen, Digitales Landschaftsmodell - Geographische Namen, Stichtag 23.03.2026, CC BY 4.0",
+   "credit_note": "The BEV metadata record names CC BY 4.0 but gives no mandatory citation string. This credit line is composed from the record title, publisher and licence; it is not quoted as BEV wording.",
+   "doi": "https://doi.org/10.48677/49ca903b-2ca8-4751-8b5d-490bb73dcfec",
+   "etag": "\"37d1000-650349b57adc0\"",
+   "last_modified": "Fri, 24 Apr 2026 13:18:55 GMT",
+   "licence": "CC BY 4.0",
+   "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+   "local_file": "cache/DLM_7000_NAMEN_20260323.gpkg",
+   "publisher": "BEV - Bundesamt für Eich- und Vermessungswesen, Austria",
+   "record_id": "49ca903b-2ca8-4751-8b5d-490bb73dcfec",
+   "sha256": "a58763bc033ef26a1723c2daae77aa7511f18c604a87c4faefb7ee0b5a4a09f2",
+   "title": "Digitales Landschaftsmodell - Geographische Namen Stichtag 23.03.2026",
+   "url": "https://data.bev.gv.at/download/DLM/DLM_20260323/DLM_7000_NAMEN_20260323.gpkg",
+   "used_for": "1082 named points in the AT-9 box, five DLM name tables"
+  },
+  {
+   "access_date": "2026-11-22",
+   "box": [
+    16.1818,
+    48.1179,
+    16.5775,
+    48.3227
+   ],
+   "bytes": 422376,
+   "committed_sample": {
+    "bytes": 422376,
+    "path": "sample/osm-help-points-at9.json",
+    "sha256": "fdb0cb92be375e31af3de37ed665fc911b528f391928d9e24e794a9540324065"
+   },
+   "credit": "© OpenStreetMap contributors, ODbL 1.0",
+   "endpoint": "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+   "endpoint_note": "Public Overpass mirror. The canonical endpoints overpass-api.de, overpass.kumi.systems and overpass.private.coffee timed out from this build host on 2026-11-22; the mirror answered and is recorded as the actual endpoint used.",
+   "excluded": "427 emergency=defibrillator nodes were fetched but are not used: web/map.js has no defibrillator layer",
+   "licence": "ODbL 1.0",
+   "licence_url": "https://opendatacommons.org/licenses/odbl/1-0/",
+   "osm_base_timestamp": "2026-11-22T06:43:03Z",
+   "publisher": "OpenStreetMap contributors",
+   "query_file": "overpass-help-points-at9.overpassql",
+   "raw_bytes": 808515,
+   "raw_sha256": "89e6181c6d6920b0c5360cd1ffff815268d084f18151a2a7bc2f956ebb7ee59c",
+   "sanitized": "Only element type/id, coordinates or way centre, and tags amenity, emergency and name. Contact, address, operator and payment tags are removed before the sample is committed.",
+   "sha256": "fdb0cb92be375e31af3de37ed665fc911b528f391928d9e24e794a9540324065",
+   "title": "OpenStreetMap help points inside the AT-9 box",
+   "url": "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+   "used_for": "2344 help points with a web/map.js layer (hospital, pharmacy, fire_station, police, drinking_water)"
+  }
+ ],
+ "status": "private prototype; not production; not publishable as an Austrian map today",
+ "transformation": {
+  "bev": "EPSG:31255 -> EPSG:4326, EPSG:31255 -> EPSG:4326 via pyproj 3.8.0 / PROJ 9.8.1, then filtered to the AT-9 box",
+  "determinism": "rows sorted; built date fixed at 2026-11-22; no clock or absolute path written",
+  "osm": "Overpass JSON, node lat/lon or way centre, filtered to the AT-9 box by the query"
+ }
+}

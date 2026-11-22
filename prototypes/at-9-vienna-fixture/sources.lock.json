@@ -1,0 +1,80 @@
+{
+  "schema": "lastbook-at9-source-lock/1",
+  "purpose": "Bounded public sources for a private AT-9 Vienna prototype. Raw files stay in cache/ and are not committed.",
+  "access_date": "2026-11-22",
+  "sources": {
+    "bev_dlm_names_20260323": {
+      "title": "Digitales Landschaftsmodell - Geographische Namen Stichtag 23.03.2026",
+      "publisher": "BEV - Bundesamt für Eich- und Vermessungswesen, Austria",
+      "record_id": "49ca903b-2ca8-4751-8b5d-490bb73dcfec",
+      "catalogue_url": "https://data.bev.gv.at/geonetwork/srv/eng/csw?service=CSW&version=2.0.2&request=GetRecordById&id=49ca903b-2ca8-4751-8b5d-490bb73dcfec&elementSetName=full&outputSchema=http://www.isotc211.org/2005/gmd",
+      "product_page": "https://www.bev.gv.at/Services/Produkte/Digitales-Landschaftsmodell/Namen.html",
+      "doi": "https://doi.org/10.48677/49ca903b-2ca8-4751-8b5d-490bb73dcfec",
+      "url": "https://data.bev.gv.at/download/DLM/DLM_20260323/DLM_7000_NAMEN_20260323.gpkg",
+      "format": "GeoPackage (SQLite), CRS EPSG:31255",
+      "licence": "CC BY 4.0",
+      "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+      "licence_statement": "Für dieses Produkt gilt die Standardlizenz CC-BY-4.0",
+      "credit": "© BEV - Bundesamt für Eich- und Vermessungswesen, Digitales Landschaftsmodell - Geographische Namen, Stichtag 23.03.2026, CC BY 4.0",
+      "credit_note": "The BEV metadata record names CC BY 4.0 but gives no mandatory citation string. This credit line is composed from the record title, publisher and licence; it is not quoted as BEV wording.",
+      "access_date": "2026-11-22",
+      "bytes": 58527744,
+      "sha256": "a58763bc033ef26a1723c2daae77aa7511f18c604a87c4faefb7ee0b5a4a09f2",
+      "last_modified": "Fri, 24 Apr 2026 13:18:55 GMT",
+      "etag": "\"37d1000-650349b57adc0\"",
+      "bounded": true,
+      "download_guard_bytes": 67108864,
+      "rows_used": [
+        "NAM_7100_SIEDLUNG_P",
+        "NAM_7200_GEBIET_P",
+        "NAM_7300_GELAENDEFORM_P",
+        "NAM_7500_GEWAESSER_P",
+        "NAM_7600_SONSTIGE_P"
+      ],
+      "rows_excluded": [
+        "NAM_7700_RIED_P (field names, not a help-map place)"
+      ]
+    },
+    "osm_help_points_at9": {
+      "title": "OpenStreetMap help points inside the AT-9 box",
+      "publisher": "OpenStreetMap contributors",
+      "endpoint": "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+      "endpoint_note": "Public Overpass mirror. The canonical endpoints overpass-api.de, overpass.kumi.systems and overpass.private.coffee timed out from this build host on 2026-11-22; the mirror answered and is recorded as the actual endpoint used.",
+      "query_file": "overpass-help-points-at9.overpassql",
+      "box": [
+        16.1818,
+        48.1179,
+        16.5775,
+        48.3227
+      ],
+      "format": "Overpass JSON",
+      "licence": "ODbL 1.0",
+      "licence_url": "https://opendatacommons.org/licenses/odbl/1-0/",
+      "credit": "© OpenStreetMap contributors, ODbL 1.0",
+      "access_date": "2026-11-22",
+      "osm_base_timestamp": "2026-11-22T06:43:03Z",
+      "bytes": 422376,
+      "sha256": "fdb0cb92be375e31af3de37ed665fc911b528f391928d9e24e794a9540324065",
+      "bounded": true,
+      "download_guard_bytes": 8388608,
+      "raw_sha256": "89e6181c6d6920b0c5360cd1ffff815268d084f18151a2a7bc2f956ebb7ee59c",
+      "raw_bytes": 808515,
+      "sanitized": "Only element type/id, coordinates or way centre, and tags amenity, emergency and name. Contact, address, operator and payment tags are removed before the sample is committed."
+    }
+  },
+  "derived": {
+    "bev_vienna_names": {
+      "path": "sample/bev-vienna-names-20260323.json",
+      "source": "bev_dlm_names_20260323",
+      "sha256": "4fb0d08032249b054ac2a797a810df7ee92f00b66823245313ea875c9ada776d",
+      "note": "Derived by derive_bev_sample.py: five DLM name point tables, transformed to EPSG:4326 and filtered to the unpadded AT-9 box. The raw 58.5 MB GeoPackage is not committed."
+    }
+  },
+  "not_downloaded": [
+    "BEV DLM Bauwerke 2026-03-23 (about 2.6 GB): too large for a bounded prototype sample",
+    "BEV DLM Gewässer 2026-03-23 (about 396 MB): outside the minimum useful layer set",
+    "BEV address register 2026-10-01 (about 118.5 MB ZIP): address schema and four-digit postcodes need a separate decision",
+    "BEV ALS DTM / geoland terrain (1.9 GB to 7.6 GB per tile): outside a place-name and help-point prototype",
+    "Geofabrik Austria OSM extract: the bounded Overpass query replaces a whole-country extract"
+  ]
+}
