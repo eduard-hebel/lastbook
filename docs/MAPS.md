@@ -180,5 +180,10 @@ The design discussion is in #23, #25, #31 and #95.
 - A change to a layer in `web/map.js` is a change you can see: include screenshots in light and dark mode.
 - A change to a pack or map tool: `packaging/test_pack_tools.py` and `packaging/scan_pack.py` check what a map set may
   hold, and `scan_pack.py` lists the allowed files under `derived/geo/` (`GEO_FILES`).
+- A change to country coverage: `packaging/test_state_maps.py` uses small sets, and
+  `packaging/test_country_coverage_realdata.py` counts the real Vienna fixture, where place names must not count as
+  roads and a neighbour's detail outside the country box must not count.
+- `packaging/state_maps.py --dry-run eu-<iso>` reports a country's coverage and refuses publication without zipping,
+  uploading or writing a manifest entry.
 - Nothing a contributor adds may make the app open a connection. New data comes in through a build tool and ships as a
   file.

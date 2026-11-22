@@ -169,15 +169,15 @@ class ViennaFixture(unittest.TestCase):
         fails, _ = sm.scan(self.map, 'AT-9')
         self.assertEqual(fails, [])
 
-    def test_coverage_roads_is_a_false_positive(self):
-        counts = sm.coverage_counts(self.map)
+    def test_coverage_roads_counts_only_real_roads(self):
+        counts = sm.coverage_counts(self.map, 'eu-at')
         db = self.db('national.sqlite')
         place_rows = db.execute("SELECT count(*) FROM feat WHERE minz>8").fetchone()[0]
         road_rows = db.execute("SELECT count(*) FROM feat WHERE layer='road'").fetchone()[0]
         db.close()
         self.assertEqual(road_rows, 0)
-        self.assertEqual(counts['roads'], place_rows)
-        self.assertGreater(counts['roads'], 1000)
+        self.assertGreater(place_rows, 1000)
+        self.assertEqual(counts['roads'], 0)
 
     def test_sources_and_samples_match_the_lock(self):
         lock = json.loads((HERE / 'sources.lock.json').read_text(encoding='utf-8'))

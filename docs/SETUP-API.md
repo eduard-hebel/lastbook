@@ -201,10 +201,13 @@ country entry to publish until that source is keyed by country.
 Publishing a country set is opt-in. `packaging/state_maps.py --order` and `--worker` only include countries listed in
 `packaging/country-publication.json`; that file is empty because the detailed source layers are still US-only. Before
 zipping or uploading a listed country, the publisher checks the built set and fails if it holds no detailed roads,
-help or water points, terrain, buildings, crops or OpenStreetMap place names inside the country box. A base-only build
-therefore never reaches the manifest as an available country map. A country is added to that file only after a source
-snapshot for it passes the check and setup can show the set's attribution. This PR says nothing about the completeness
-of any country's map: with today's sources, a country build is the low-zoom base only.
+help or water points, terrain, buildings, crops or OpenStreetMap place names inside the country box. Roads are counted
+as real `layer='road'` features only (place names in the same table do not count), and every layer is restricted to rows
+inside the country's box, so a stray row or a neighbour's detail outside it cannot satisfy the check.
+`packaging/state_maps.py --dry-run eu-<iso>` prints the counts and blockers without zipping, uploading or touching the
+manifest. A base-only build therefore never reaches the manifest as an available country map. A country is added to
+that file only after a source snapshot for it passes the check and setup can show the set's attribution. This PR says
+nothing about the completeness of any country's map: with today's sources, a country build is the low-zoom base only.
 
 Built by setup-backend (2026-11-12):
 - Job item `kind: "map"` comes after the pack and before the model: `waiting`, `downloading`, `unpacking` (bytes of

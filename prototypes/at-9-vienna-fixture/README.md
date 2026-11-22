@@ -127,7 +127,8 @@ run, because it expects a complete source snapshot. The cut itself is the reposi
 8. adding the sidecar inside the set makes the real scan fail on the file contract;
 9. adding an `attribution` key to `map-set.json` makes the real scan fail on the key contract;
 10. the unmodified set passes the real scan with no failures;
-11. the coverage counter reports 1,076 "roads" although there are zero road rows (see below);
+11. the coverage counter reports 0 roads although 1,076 place rows have `minz>8` (the guard now counts only
+    `layer='road'` inside the country box);
 12. the committed samples and, when present, the raw GeoPackage match `sources.lock.json`;
 13. no built file contains `/home/`, the build user's name, the working-directory name or a private
     key, and no file is larger than 5 MB.
@@ -150,10 +151,11 @@ These are the reasons this stays a prototype. Each is tested or read directly fr
    from today's US source snapshot would carry the US low-zoom base and every US gazetteer place into
    an AT-9 map. This fixture avoids that because its source is Vienna-only. A production build needs
    an Austrian base or a region-filtered place copy.
-4. **The coverage guard can be fooled.** `packaging/state_maps.py:77` counts "roads" as any `feat`
-   with `minz>8`, not `layer='road'`. The 1,082 place points make this fixture report 1,076 "roads"
-   while holding zero roads. The guard would pass an AT-9 set with no streets at all. The test asserts
-   this false positive rather than hiding it.
+4. **The coverage guard was fooled; it is now fixed.** `packaging/state_maps.py` used to count
+   "roads" as any `feat` with `minz>8`, not `layer='road'`, so the 1,082 place points reported 1,076
+   "roads" while holding zero roads. The guard now counts real `layer='road'` rows inside the country
+   box only, and this fixture reports 0. Even so a country still needs a real road snapshot before it
+   can pass `country_publish_blockers`; `packaging/country-publication.json` stays empty.
 5. **OSM help points are not an official list.** They are useful and bounded, but completeness varies.
    The official BMI police list and the blackout promise discussed in `docs/REGIONS-AT.md` would be
    stronger for police stations, and were not fetched here.
