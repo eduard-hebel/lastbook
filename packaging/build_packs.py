@@ -1,7 +1,7 @@
 """Builds Lastbook's download packs from derived/packs/pack-spec.json. A pack is a data folder: point LASTBOOK_DATA at it.
 
   python -I -B build_packs.py snapshot
-  python -I -B build_packs.py map base|us|<state code, such as RI>|<country code, such as eu-at>
+  python -I -B build_packs.py map base|us|<state code, such as RI>|<country code, such as eu-at>|<subdivision code, such as AT-9>
   python -I -B build_packs.py build small|medium|all|corporals-corner|firearms-hunting [--map base|us|RI] [--sample N] [--snapshot DIR] [--fetched DIR]
 
 Everything comes from one frozen snapshot of the catalog and search file, so the indexer can run throughout. The library is only read: files that do not change are APFS
@@ -1263,6 +1263,8 @@ def sources_page(records):
 GEO_FILES = ['national', 'map', 'water', 'terrain', 'buildings', 'crops', 'places']
 # European countries a detailed map can be built for, as 'eu-<iso>' codes: titles, ISO codes and extract boxes.
 COUNTRIES = json.loads((PROJECT / 'packaging' / 'europe-countries.json').read_text(encoding='utf-8'))['countries']
+# Non-US subdivisions, keyed by their own code such as 'AT-9': boxes from official boundaries, not from a country extract.
+SUBDIVISIONS = json.loads((PROJECT / 'packaging' / 'nonus-regions.json').read_text(encoding='utf-8'))['regions']
 
 
 def geo_source():
@@ -1304,8 +1306,19 @@ def country_box(code):
     return w - .15, s - .15, e + .15, n + .15
 
 
+def subdivision_box(code):
+    """A non-US subdivision's box from its official boundary (packaging/nonus-regions.json), with the same 0.15 degree
+    margin a state and a country get. A country extract has no state lines, so this lookup is separate from country_box."""
+    w, s, e, n = SUBDIVISIONS[code]['box']
+    return w - .15, s - .15, e + .15, n + .15
+
+
 def region_box(src, code):
-    return country_box(code) if code in COUNTRIES else state_box(src, code)
+    if code in COUNTRIES:
+        return country_box(code)
+    if code in SUBDIVISIONS:
+        return subdivision_box(code)
+    return state_box(src, code)
 
 
 def tile_range(box, z):
@@ -1486,6 +1499,8 @@ def build_map(name):
         state_set(src, dest, name)
     elif name in COUNTRIES:
         state_set(src, dest, name, country_box(name))
+    elif name in SUBDIVISIONS:
+        state_set(src, dest, name, subdivision_box(name))
     else:
         raise SystemExit(f'unknown map set {name}')
     size = {f.relative_to(dest).as_posix(): f.stat().st_size for f in dest.rglob('*') if f.is_file()}

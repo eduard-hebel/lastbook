@@ -1,0 +1,16 @@
+{
+ "_about": "Non-US subdivision map regions for packaging/build_packs.py, so one region can be cut with the same code as a US state or a country. box is [west, south, east, north] in degrees from the official boundary, before the 0.15 degree margin subdivision_box adds. AT-9 is Vienna's ISO 3166-2:AT code; its box and its BEV VGD provenance are in docs/regions-at-proposed.json (merged proposal #264), and this file copies only the unpadded box so the build has one stable input. Listing a region here only makes a build possible. It does not publish it, does not ingest the Austrian layers, and carries no attribution: those stay with the region proposal and the source-snapshot work.",
+ "regions": {
+  "AT-9": {
+   "title": "Wien (Vienna)",
+   "country": "AT",
+   "box": [
+    16.1818,
+    48.1179,
+    16.5775,
+    48.3227
+   ],
+   "source": "docs/regions-at-proposed.json, bbox from BEV Verwaltungsgrenzen (VGD) 01.04.2026, CC-BY-4.0"
+  }
+ }
+}
