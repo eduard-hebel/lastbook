@@ -1,0 +1,205 @@
+name: Native Apple evidence (LFM3 + Swift)
+
+on:
+  push:
+    branches:
+      - native-apple-evidence-20261122
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apple-arm64:
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      LFM3_FILE: LFM3-1.7B-Q4_K_M.gguf
+      LFM3_SHA256: 3793e1e6e2266919d6e015287221b41100175a98eddaba92e111aed3b05c93c4
+      LFM3_SIZE: "1099627808"
+      LFM3_REVISION: cd0c74c575b5c416f3011b5b4c298077f26ca8c2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record host and toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p ci-evidence
+          {
+            echo "repository=$(git remote get-url origin)"
+            echo "commit=$(git rev-parse HEAD)"
+            echo "commit_subject=$(git log -1 --format=%s)"
+            echo "date_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            sw_vers
+            uname -a
+            echo "arch=$(uname -m)"
+            echo "ncpu=$(sysctl -n hw.ncpu)"
+            echo "memsize=$(sysctl -n hw.memsize)"
+            xcodebuild -version
+            echo "iphoneos_sdk=$(xcrun --sdk iphoneos --show-sdk-version)"
+            echo "iphonesimulator_sdk=$(xcrun --sdk iphonesimulator --show-sdk-version)"
+            swiftc --version
+            cmake --version | head -1
+            python3 --version
+            git --version
+          } 2>&1 | tee ci-evidence/host.txt
+
+      - name: Ensure Metal toolchain
+        run: |
+          set -euo pipefail
+          if ! xcrun --find metal >/dev/null 2>&1; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+          xcrun --find metal | tee ci-evidence/metal-toolchain.txt
+          xcrun metal --version 2>&1 | tee -a ci-evidence/metal-toolchain.txt
+
+      - name: Prepare pinned llama.cpp
+        run: bash mobile/ipad/scripts/prepare_dependencies.sh 2>&1 | tee ci-evidence/prepare-llama.log
+
+      - name: Build iPad app for Simulator, unsigned
+        id: ios_sim
+        continue-on-error: true
+        working-directory: mobile/ipad
+        run: |
+          set -o pipefail
+          xcodebuild -project Lastbook.xcodeproj -scheme Lastbook \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/dd-sim CODE_SIGNING_ALLOWED=NO build \
+            2>&1 | tee ../../ci-evidence/build-ios-simulator.log
+
+      - name: Build iPad app for device, unsigned Release
+        id: ios_device
+        continue-on-error: true
+        working-directory: mobile/ipad
+        run: |
+          set -o pipefail
+          xcodebuild -project Lastbook.xcodeproj -scheme Lastbook -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/dd-device CODE_SIGNING_ALLOWED=NO build \
+            2>&1 | tee ../../ci-evidence/build-ios-device.log
+
+      - name: Build macOS AI harness
+        id: harness
+        continue-on-error: true
+        run: bash mobile/ipad/tools/build_aiharness.sh 2>&1 | tee ci-evidence/build-harness.log
+
+      - name: Download and verify pinned LFM3
+        id: model
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p ci-evidence/model
+          URL="https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/resolve/${LFM3_REVISION}/${LFM3_FILE}"
+          echo "$URL" > ci-evidence/model/source.txt
+          curl -fL --retry 5 --retry-delay 5 --connect-timeout 30 \
+            -o "ci-evidence/model/${LFM3_FILE}" "$URL"
+          SIZE="$(stat -f%z "ci-evidence/model/${LFM3_FILE}")"
+          SHA="$(shasum -a 256 "ci-evidence/model/${LFM3_FILE}" | awk '{print $1}')"
+          {
+            echo "source=$URL"
+            echo "file=${LFM3_FILE}"
+            echo "revision=${LFM3_REVISION}"
+            echo "expected_size=${LFM3_SIZE}"
+            echo "actual_size=${SIZE}"
+            echo "expected_sha256=${LFM3_SHA256}"
+            echo "actual_sha256=${SHA}"
+          } | tee ci-evidence/model/verification.txt
+          test "$SIZE" = "$LFM3_SIZE"
+          test "$SHA" = "$LFM3_SHA256"
+
+      - name: Make fixture library
+        id: fixture
+        run: |
+          set -euo pipefail
+          python3 app/tests/fixture.py | tee ci-evidence/fixture.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path("derived/app-build/testdata/library-data/text")
+          text.mkdir(parents=True, exist_ok=True)
+          (text / "pdfsmall.txt").write_text(
+              "Boiling water (test fixture page 1)\n\n"
+              "Bring clear water to a rolling boil for 1 minute. At altitudes above 6,500 feet (2,000 m), boil for 3 minutes.\n\n"
+              "If boiling is not possible, disinfect clear water with unscented household chlorine bleach: add 8 drops (about 0.5 ml) per gallon (3.8 L), or 16 drops if the water is cloudy after filtering. Stir and wait 30 minutes before drinking. Repeat the dose if the water does not have a slight chlorine smell.\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Run LFM3 through lastbook-llm on macOS arm64
+        id: runtime
+        if: steps.model.outcome == 'success' && steps.fixture.outcome == 'success' && steps.harness.outcome == 'success'
+        run: |
+          set -euo pipefail
+          mkdir -p ci-evidence/runtime
+          DATA="$PWD/derived/app-build/testdata"
+          MODEL_DIR="$PWD/ci-evidence/model"
+          OUT="$PWD/ci-evidence/runtime"
+          {
+            echo "host=$(sw_vers -productName) $(sw_vers -productVersion) $(uname -m)"
+            echo "commit=$(git rev-parse HEAD)"
+            echo "model=${LFM3_FILE}"
+            echo "model_sha256=$(shasum -a 256 "$MODEL_DIR/$LFM3_FILE" | awk '{print $1}')"
+            echo "harness_sha256=$(shasum -a 256 mobile/ipad/build/aiharness | awk '{print $1}')"
+            file mobile/ipad/build/aiharness
+            lipo -archs mobile/ipad/build/aiharness
+          } | tee "$OUT/identity.txt"
+          mobile/ipad/build/aiharness "$DATA" "$PWD" "$MODEL_DIR" "$OUT/state.json" "$OUT" \
+            ask "The tap water is off. How do I make water safe to drink?" 2>&1 | tee "$OUT/ask.log"
+          grep -q "HTTP 200" "$OUT/ask.log"
+          grep -q "\[done:" "$OUT/ask.log"
+          if grep -q "model_unavailable" "$OUT/ask.log"; then
+            echo "runtime reported model_unavailable" >&2
+            exit 1
+          fi
+
+      - name: Summarize
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "## Native Apple evidence"
+            echo
+            echo "- runner: \`${{ runner.os }} ${{ runner.arch }}\` / \`${{ runner.name }}\`"
+            echo "- ios_simulator_build: \`${{ steps.ios_sim.outcome }}\`"
+            echo "- ios_device_build: \`${{ steps.ios_device.outcome }}\`"
+            echo "- macos_harness_build: \`${{ steps.harness.outcome }}\`"
+            echo "- model: \`${{ steps.model.outcome }}\`"
+            echo "- runtime: \`${{ steps.runtime.outcome }}\`"
+            echo
+            echo "### Host"
+            echo '```'
+            cat ci-evidence/host.txt 2>/dev/null || true
+            echo '```'
+            echo "### Model"
+            echo '```'
+            cat ci-evidence/model/verification.txt 2>/dev/null || true
+            echo '```'
+            echo "### Runtime answer"
+            echo '```'
+            tail -120 ci-evidence/runtime/ask.log 2>/dev/null || true
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-apple-evidence-${{ github.sha }}
+          path: ci-evidence
+          if-no-files-found: warn
+
+      - name: Fail if any evidence step failed
+        if: always()
+        env:
+          IOS_SIM: ${{ steps.ios_sim.outcome }}
+          IOS_DEVICE: ${{ steps.ios_device.outcome }}
+          HARNESS: ${{ steps.harness.outcome }}
+          MODEL: ${{ steps.model.outcome }}
+          RUNTIME: ${{ steps.runtime.outcome }}
+        run: |
+          set -euo pipefail
+          echo "ios_simulator=$IOS_SIM ios_device=$IOS_DEVICE harness=$HARNESS model=$MODEL runtime=$RUNTIME"
+          test "$IOS_SIM" = success
+          test "$IOS_DEVICE" = success
+          test "$HARNESS" = success
+          test "$MODEL" = success
+          test "$RUNTIME" = success
